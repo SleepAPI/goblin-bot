@@ -271,11 +271,17 @@ const command: ChatInputCommand = {
           .setStyle(ButtonStyle.Success)
           .setLabel('Accept')
           .setDisabled(th <= 0);
+        const settingsBtn = new ButtonBuilder()
+          .setCustomId(`recruit:settings:${th}:${tagNoHash}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji('⚙️')
+          .setLabel('Settings')
+          .setDisabled(th <= 0);
         const closeBtn = new ButtonBuilder()
           .setCustomId(`recruit:close:${tagNoHash}`)
           .setStyle(ButtonStyle.Danger)
           .setLabel('Close');
-        const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(acceptBtn, closeBtn);
+        const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(acceptBtn, settingsBtn, closeBtn);
 
         const pagedMessage = await thread.send({
           embeds: [pages[pageIndex]],

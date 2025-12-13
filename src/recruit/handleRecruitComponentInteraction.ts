@@ -1,14 +1,25 @@
 import {
   ActionRowBuilder,
   PermissionFlagsBits,
+  RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
+  type AnySelectMenuInteraction,
   type ButtonInteraction,
+  type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
   roleMention
 } from 'discord.js';
-import { getRecruitLeaderRoleIdsForTownHall } from '@/recruit/leaderPingConfig';
+import {
+  getRecruitRoleIdsForTownHall,
+  getRecruitRoleMappingSummary,
+  setRecruitRoleIdsForTownHall
+} from '@/recruit/configStore';
 
-type RecruitComponentInteraction = ButtonInteraction | StringSelectMenuInteraction;
+type RecruitComponentInteraction =
+  | ButtonInteraction
+  | StringSelectMenuInteraction
+  | RoleSelectMenuInteraction
+  | AnySelectMenuInteraction;
 
 function hasRecruitManagePerms(interaction: RecruitComponentInteraction): boolean {
   const perms = interaction.memberPermissions;
@@ -22,6 +33,9 @@ function hasRecruitManagePerms(interaction: RecruitComponentInteraction): boolea
 function parseCustomId(customId: string):
   | { kind: 'accept'; th: number; tagNoHash: string }
   | { kind: 'close'; tagNoHash: string }
+  | { kind: 'settings'; th: number; tagNoHash: string }
+  | { kind: 'settingsTh'; th: number; tagNoHash: string }
+  | { kind: 'settingsRoles'; th: number; tagNoHash: string }
   | { kind: 'pick'; th: number; tagNoHash: string }
   | { kind: 'unknown' } {
   const parts = customId.split(':');
@@ -36,6 +50,21 @@ function parseCustomId(customId: string):
   if (action === 'close') {
     const tagNoHash = parts[2] ?? '';
     return { kind: 'close', tagNoHash };
+  }
+  if (action === 'settings') {
+    const th = Number(parts[2]);
+    const tagNoHash = parts[3] ?? '';
+    return { kind: 'settings', th, tagNoHash };
+  }
+  if (action === 'settings_th') {
+    const th = Number(parts[2]);
+    const tagNoHash = parts[3] ?? '';
+    return { kind: 'settingsTh', th, tagNoHash };
+  }
+  if (action === 'settings_roles') {
+    const th = Number(parts[2]);
+    const tagNoHash = parts[3] ?? '';
+    return { kind: 'settingsRoles', th, tagNoHash };
   }
   if (action === 'pick') {
     const th = Number(parts[2]);
@@ -59,10 +88,18 @@ async function handleAccept(interaction: ButtonInteraction, th: number, tagNoHas
     return;
   }
 
-  const roleIds = getRecruitLeaderRoleIdsForTownHall(th);
+  if (!Number.isInteger(th) || th < 1 || th > 18) {
+    await interaction.reply({
+      content: `This applicant’s Town Hall (TH${String(th)}) is outside the configurable range (TH1–TH18).`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  const roleIds = await getRecruitRoleIdsForTownHall(interaction.guildId, th);
   if (roleIds.length === 0) {
     await interaction.reply({
-      content: `No leader roles are configured for TH${th}. (Set \`RECRUIT_TH_ROLE_RANGES\`.)`,
+      content: `No leader roles are configured for TH${th}. Use the ⚙️ Settings button to configure.`,
       ephemeral: true
     });
     return;
@@ -181,6 +218,134 @@ async function handleClose(interaction: ButtonInteraction, tagNoHash: string) {
   await interaction.editReply('Closed.');
 }
 
+function buildSettingsRows(opts: { th: number }) {
+  const th = Number.isInteger(opts.th) && opts.th >= 1 && opts.th <= 18 ? opts.th : 1;
+
+  const thSelect = new StringSelectMenuBuilder()
+    .setCustomId(`recruit:settings_th:${th}:x`)
+    .setPlaceholder('Select Town Hall to configure')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      Array.from({ length: 18 }, (_, i) => {
+        const value = String(i + 1);
+        return {
+          label: `TH${value}`,
+          value,
+          default: i + 1 === th
+        };
+      })
+    );
+
+  const rolesSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`recruit:settings_roles:${th}:x`)
+    .setPlaceholder(`Select leader roles for TH${th}`)
+    .setMinValues(0)
+    .setMaxValues(25);
+
+  const row1 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(thSelect);
+  const row2 = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(rolesSelect);
+  return { row1, row2, th };
+}
+
+async function handleSettingsOpen(interaction: ButtonInteraction, th: number) {
+  if (!interaction.inGuild()) {
+    await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
+    return;
+  }
+  if (!hasRecruitManagePerms(interaction)) {
+    await interaction.reply({
+      content: 'You do not have permission to configure recruit settings.',
+      ephemeral: true
+    });
+    return;
+  }
+
+  const safeTh = Number.isInteger(th) && th >= 1 && th <= 18 ? th : 1;
+  const currentForTh = await getRecruitRoleIdsForTownHall(interaction.guildId, safeTh);
+  const summary = await getRecruitRoleMappingSummary(interaction.guildId);
+
+  const { row1, row2 } = buildSettingsRows({ th: safeTh });
+
+  // Patch the custom IDs to include a stable marker we can parse (tag is unused here).
+  (row1.components[0] as StringSelectMenuBuilder).setCustomId(`recruit:settings_th:${safeTh}:cfg`);
+  (row2.components[0] as RoleSelectMenuBuilder).setCustomId(`recruit:settings_roles:${safeTh}:cfg`);
+
+  await interaction.reply({
+    content:
+      `**Recruit leader role settings**\n\n` +
+      `**Current mapping**:\n${summary}\n\n` +
+      `**Editing TH${safeTh}**: ${currentForTh.length ? currentForTh.map(roleMention).join(' ') : '_none_'}\n` +
+      `Select a TH, then pick role(s) (selection saves immediately).`,
+    components: [row1, row2],
+    ephemeral: true
+  });
+}
+
+async function handleSettingsTh(interaction: StringSelectMenuInteraction, th: number) {
+  if (!interaction.inGuild()) {
+    await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
+    return;
+  }
+  if (!hasRecruitManagePerms(interaction)) {
+    await interaction.reply({
+      content: 'You do not have permission to configure recruit settings.',
+      ephemeral: true
+    });
+    return;
+  }
+
+  const selected = Number(interaction.values?.[0]);
+  const nextTh = Number.isInteger(selected) && selected >= 1 && selected <= 18 ? selected : th;
+
+  const currentForTh = await getRecruitRoleIdsForTownHall(interaction.guildId, nextTh);
+  const summary = await getRecruitRoleMappingSummary(interaction.guildId);
+  const { row1, row2 } = buildSettingsRows({ th: nextTh });
+  (row1.components[0] as StringSelectMenuBuilder).setCustomId(`recruit:settings_th:${nextTh}:cfg`);
+  (row2.components[0] as RoleSelectMenuBuilder).setCustomId(`recruit:settings_roles:${nextTh}:cfg`);
+
+  await interaction.update({
+    content:
+      `**Recruit leader role settings**\n\n` +
+      `**Current mapping**:\n${summary}\n\n` +
+      `**Editing TH${nextTh}**: ${currentForTh.length ? currentForTh.map(roleMention).join(' ') : '_none_'}\n` +
+      `Select a TH, then pick role(s) (selection saves immediately).`,
+    components: [row1, row2]
+  });
+}
+
+async function handleSettingsRoles(interaction: RoleSelectMenuInteraction, th: number) {
+  if (!interaction.inGuild()) {
+    await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
+    return;
+  }
+  if (!hasRecruitManagePerms(interaction)) {
+    await interaction.reply({
+      content: 'You do not have permission to configure recruit settings.',
+      ephemeral: true
+    });
+    return;
+  }
+
+  const picked = Array.from(new Set((interaction.values ?? []).slice(0, 25)));
+  await setRecruitRoleIdsForTownHall(interaction.guildId, th, picked);
+
+  const currentForTh = await getRecruitRoleIdsForTownHall(interaction.guildId, th);
+  const summary = await getRecruitRoleMappingSummary(interaction.guildId);
+  const { row1, row2 } = buildSettingsRows({ th });
+  (row1.components[0] as StringSelectMenuBuilder).setCustomId(`recruit:settings_th:${th}:cfg`);
+  (row2.components[0] as RoleSelectMenuBuilder).setCustomId(`recruit:settings_roles:${th}:cfg`);
+
+  await interaction.update({
+    content:
+      `**Recruit leader role settings**\n\n` +
+      `**Current mapping**:\n${summary}\n\n` +
+      `**Editing TH${th}**: ${currentForTh.length ? currentForTh.map(roleMention).join(' ') : '_none_'}\n` +
+      `Saved. You can keep editing.`,
+    components: [row1, row2]
+  });
+}
+
 export async function handleRecruitComponentInteraction(
   interaction: RecruitComponentInteraction
 ): Promise<boolean> {
@@ -189,6 +354,21 @@ export async function handleRecruitComponentInteraction(
 
   if (parsed.kind === 'accept' && interaction.isButton()) {
     await handleAccept(interaction, parsed.th, parsed.tagNoHash);
+    return true;
+  }
+
+  if (parsed.kind === 'settings' && interaction.isButton()) {
+    await handleSettingsOpen(interaction, parsed.th);
+    return true;
+  }
+
+  if (parsed.kind === 'settingsTh' && interaction.isStringSelectMenu()) {
+    await handleSettingsTh(interaction, parsed.th);
+    return true;
+  }
+
+  if (parsed.kind === 'settingsRoles' && interaction.isRoleSelectMenu()) {
+    await handleSettingsRoles(interaction, parsed.th);
     return true;
   }
 

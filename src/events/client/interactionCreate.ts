@@ -17,7 +17,7 @@ const event: ClientEvent<'interactionCreate'> = {
 
     // Handle /recruit buttons/selects (Accept/Close) globally so they keep working
     // even after the short-lived per-message collectors expire.
-    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu()) {
       try {
         const handled = await handleRecruitComponentInteraction(interaction);
         if (handled) return;
