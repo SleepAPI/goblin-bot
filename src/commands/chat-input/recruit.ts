@@ -5,7 +5,8 @@ import {
   ComponentType,
   EmbedBuilder,
   SlashCommandBuilder,
-  ThreadAutoArchiveDuration
+  ThreadAutoArchiveDuration,
+  type AnyThreadChannel
 } from 'discord.js';
 import type { ChatInputCommand } from '@/commands/types';
 import {
@@ -104,12 +105,19 @@ const command: ChatInputCommand = {
       await interaction.editReply({ content: `Creating thread for \`${threadTitle}\`...` });
       const replyMessage = await interaction.fetchReply();
 
-      if (!replyMessage.isThread()) {
-        const thread = await replyMessage.startThread({
+      let thread: AnyThreadChannel | null = null;
+      if (replyMessage.channel.isThread()) {
+        thread = replyMessage.channel;
+      } else if (replyMessage.hasThread && replyMessage.thread) {
+        thread = replyMessage.thread;
+      } else {
+        thread = await replyMessage.startThread({
           name: threadTitle.slice(0, 100),
           autoArchiveDuration: ThreadAutoArchiveDuration.OneDay
         });
+      }
 
+      if (thread) {
         const heroes = (player.heroes ?? []).filter((h) => (h?.name ?? '').trim().length > 0);
         const heroesValue =
           heroes.length > 0
