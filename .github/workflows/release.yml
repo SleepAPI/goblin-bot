@@ -170,6 +170,9 @@ jobs:
             # In non-interactive shells, nvm.sh needs to be explicitly sourced
             # NVM_DIR is typically /root/.nvm or $HOME/.nvm
             echo "Looking for nvm..."
+            echo "DEBUG: HOME=$HOME"
+            echo "DEBUG: USER=$USER"
+            echo "DEBUG: Checking if $HOME/.nvm/nvm.sh exists: $([ -s "$HOME/.nvm/nvm.sh" ] && echo 'YES' || echo 'NO')"
             NVM_LOADED=false
             
             # Check common nvm locations (order matters - check most likely first)
@@ -179,19 +182,19 @@ jobs:
               export NVM_DIR="$HOME/.nvm"
               . "$NVM_DIR/nvm.sh"
               NVM_LOADED=true
-            # 2. Check if NVM_DIR is already set in environment
+            # 2. Check /root/.nvm explicitly (in case HOME is not /root)
+            elif [ -s "/root/.nvm/nvm.sh" ]; then
+              echo "Found nvm at /root/.nvm"
+              export NVM_DIR="/root/.nvm"
+              . "$NVM_DIR/nvm.sh"
+              NVM_LOADED=true
+            # 3. Check if NVM_DIR is already set in environment
             elif [ -n "${NVM_DIR:-}" ] && [ -s "${NVM_DIR}/nvm.sh" ]; then
               echo "Found nvm at \$NVM_DIR: $NVM_DIR"
               export NVM_DIR
               . "${NVM_DIR}/nvm.sh"
               NVM_LOADED=true
-            # 2. Check $HOME/.nvm (most common location, e.g., /root/.nvm)
-            elif [ -s "$HOME/.nvm/nvm.sh" ]; then
-              echo "Found nvm at \$HOME/.nvm: $HOME/.nvm"
-              export NVM_DIR="$HOME/.nvm"
-              . "$NVM_DIR/nvm.sh"
-              NVM_LOADED=true
-            # 3. Try sourcing .bashrc (where nvm is typically loaded in interactive shells)
+            # 4. Try sourcing .bashrc (where nvm is typically loaded in interactive shells)
             elif [ -f "$HOME/.bashrc" ] && grep -q "nvm.sh" "$HOME/.bashrc" 2>/dev/null; then
               echo "Found nvm reference in .bashrc, sourcing it..."
               . "$HOME/.bashrc" 2>/dev/null || true
@@ -212,7 +215,7 @@ jobs:
             else
               # 5. Search for nvm.sh in common locations
               echo "Searching for nvm.sh..."
-              for nvm_path in "$HOME/.nvm" "/usr/local/share/nvm" "/opt/nvm" "$HOME/.local/share/nvm"; do
+              for nvm_path in "$HOME/.nvm" "/root/.nvm" "/usr/local/share/nvm" "/opt/nvm" "$HOME/.local/share/nvm"; do
                 if [ -s "$nvm_path/nvm.sh" ]; then
                   echo "Found nvm at $nvm_path"
                   export NVM_DIR="$nvm_path"
@@ -264,13 +267,17 @@ jobs:
               echo "ERROR: nvm not found and Node.js is not installed"
               echo "Checked locations:"
               if [ -n "${NVM_DIR:-}" ]; then
-                echo "  - \$NVM_DIR/nvm.sh: $NVM_DIR"
+                echo "  - \$NVM_DIR/nvm.sh: ${NVM_DIR}/nvm.sh ($([ -s "${NVM_DIR}/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
               else
                 echo "  - \$NVM_DIR/nvm.sh: <not set>"
               fi
-              echo "  - \$HOME/.nvm/nvm.sh: $HOME/.nvm/nvm.sh"
-              echo "  - /usr/local/share/nvm/nvm.sh"
+              echo "  - \$HOME/.nvm/nvm.sh: $HOME/.nvm/nvm.sh ($([ -s "$HOME/.nvm/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
+              echo "  - /usr/local/share/nvm/nvm.sh ($([ -s "/usr/local/share/nvm/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
+              echo "Current HOME: $HOME"
+              echo "Current USER: $USER"
               echo "Current PATH: $PATH"
+              echo "Listing $HOME/.nvm contents (if exists):"
+              ls -la "$HOME/.nvm" 2>/dev/null || echo "  Directory does not exist"
               exit 1
             fi
 
