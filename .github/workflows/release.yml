@@ -162,167 +162,19 @@ jobs:
 
             cd "$DEPLOY_PATH"
 
-            # Initialize NVM_DIR to empty if not set (avoids unbound variable errors with set -u)
-            # Use parameter expansion to safely get value or empty string
-            NVM_DIR="${NVM_DIR:-}"
+            # Load nvm and use the correct Node version (same approach as SleepAPI)
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-            # Source nvm if it exists (nvm is a function, not a command)
-            # In non-interactive shells, nvm.sh needs to be explicitly sourced
-            # NVM_DIR is typically /root/.nvm or $HOME/.nvm
-            echo "Looking for nvm..."
-            echo "DEBUG: HOME=$HOME"
-            echo "DEBUG: USER=$USER"
-            echo "DEBUG: Checking if $HOME/.nvm/nvm.sh exists: $([ -s "$HOME/.nvm/nvm.sh" ] && echo 'YES' || echo 'NO')"
-            echo "DEBUG: Checking if /root/.nvm/nvm.sh exists: $([ -s "/root/.nvm/nvm.sh" ] && echo 'YES' || echo 'NO')"
-            echo "DEBUG: Checking if /root/.nvm/nvm.sh is readable: $([ -r "/root/.nvm/nvm.sh" ] && echo 'YES' || echo 'NO')"
-            NVM_LOADED=false
-            
-            # Check common nvm locations (order matters - check most likely first)
-            # 1. Check $HOME/.nvm first (most common location, e.g., /root/.nvm)
-            if [ -s "$HOME/.nvm/nvm.sh" ]; then
-              echo "Found nvm at \$HOME/.nvm: $HOME/.nvm"
-              export NVM_DIR="$HOME/.nvm"
-              . "$NVM_DIR/nvm.sh"
-              NVM_LOADED=true
-            # 2. Check /root/.nvm explicitly (in case HOME is not /root)
-            elif [ -r "/root/.nvm/nvm.sh" ] && [ -s "/root/.nvm/nvm.sh" ]; then
-              echo "Found nvm at /root/.nvm (readable: yes)"
-              export NVM_DIR="/root/.nvm"
-              echo "DEBUG: About to source $NVM_DIR/nvm.sh"
-              if . "$NVM_DIR/nvm.sh" 2>&1; then
-                echo "Successfully sourced nvm.sh"
-                NVM_LOADED=true
-              else
-                SOURCE_ERROR=$?
-                echo "WARNING: Failed to source /root/.nvm/nvm.sh (exit code: $SOURCE_ERROR)"
-                echo "DEBUG: This may be because user '$USER' cannot access root's nvm"
-                echo "DEBUG: Trying to install nvm for current user..."
-                # Try to install nvm for the current user
-                if [ ! -d "$HOME/.nvm" ]; then
-                  mkdir -p "$HOME/.nvm"
-                  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-                  export NVM_DIR="$HOME/.nvm"
-                  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && NVM_LOADED=true
-                fi
-                if [ "$NVM_LOADED" = false ]; then
-                  echo "DEBUG: Could not install nvm for current user, will try system Node.js"
-                fi
-              fi
-            # 3. Check if NVM_DIR is already set in environment
-            elif [ -n "${NVM_DIR:-}" ] && [ -s "${NVM_DIR}/nvm.sh" ]; then
-              echo "Found nvm at \$NVM_DIR: $NVM_DIR"
-              export NVM_DIR
-              . "${NVM_DIR}/nvm.sh"
-              NVM_LOADED=true
-            # 4. Try sourcing .bashrc (where nvm is typically loaded in interactive shells)
-            elif [ -f "$HOME/.bashrc" ] && grep -q "nvm.sh" "$HOME/.bashrc" 2>/dev/null; then
-              echo "Found nvm reference in .bashrc, sourcing it..."
-              . "$HOME/.bashrc" 2>/dev/null || true
-              if type nvm >/dev/null 2>&1; then
-                echo "nvm loaded from .bashrc"
-                # Capture NVM_DIR if it was set by .bashrc
-                if [ -n "${NVM_DIR:-}" ]; then
-                  export NVM_DIR
-                fi
-                NVM_LOADED=true
-              fi
-            # 4. Check other common locations
-            elif [ -s "/usr/local/share/nvm/nvm.sh" ]; then
-              echo "Found nvm at /usr/local/share/nvm"
-              export NVM_DIR="/usr/local/share/nvm"
-              . "$NVM_DIR/nvm.sh"
-              NVM_LOADED=true
-            else
-              # 5. Search for nvm.sh in common locations
-              echo "Searching for nvm.sh..."
-              for nvm_path in "$HOME/.nvm" "/root/.nvm" "/usr/local/share/nvm" "/opt/nvm" "$HOME/.local/share/nvm"; do
-                if [ -s "$nvm_path/nvm.sh" ]; then
-                  echo "Found nvm at $nvm_path"
-                  export NVM_DIR="$nvm_path"
-                  . "$NVM_DIR/nvm.sh"
-                  NVM_LOADED=true
-                  break
-                fi
-              done
-            fi
-
-            # Verify nvm was loaded
-            if [ "$NVM_LOADED" = true ]; then
-              echo "DEBUG: Verifying nvm function..."
-              if type nvm >/dev/null 2>&1; then
-                echo "nvm function loaded successfully"
-                echo "DEBUG: NVM_DIR=$NVM_DIR"
-              else
-                echo "WARNING: nvm.sh sourced but nvm function not available"
-                echo "DEBUG: Checking if nvm.sh was actually sourced..."
-                echo "DEBUG: type nvm output: $(type nvm 2>&1 || echo 'nvm not found')"
-                # Try sourcing bashrc/profile as fallback (where nvm is typically loaded)
-                if [ -f "$HOME/.bashrc" ]; then
-                  echo "Trying to source .bashrc..."
-                  # Source only nvm-related parts to avoid side effects
-                  grep -q "nvm.sh" "$HOME/.bashrc" && . "$HOME/.bashrc" 2>/dev/null || true
-                fi
-                if ! type nvm >/dev/null 2>&1 && [ -f "$HOME/.bash_profile" ]; then
-                  echo "Trying to source .bash_profile..."
-                  grep -q "nvm.sh" "$HOME/.bash_profile" && . "$HOME/.bash_profile" 2>/dev/null || true
-                fi
-                if ! type nvm >/dev/null 2>&1; then
-                  NVM_LOADED=false
-                fi
-              fi
-            fi
-
-            # Use nvm to set up Node.js if available
-            if [ "$NVM_LOADED" = true ]; then
-              echo "Using nvm to manage Node.js version..."
-              echo "DEBUG: Running nvm install ${NODE_VERSION:-22}..."
-              if ! nvm install "${NODE_VERSION:-22}" 2>&1; then
-                echo "WARNING: nvm install failed, continuing anyway..."
-              fi
-              echo "DEBUG: Running nvm use ${NODE_VERSION:-22}..."
-              if ! nvm use "${NODE_VERSION:-22}" 2>&1; then
-                echo "ERROR: nvm use failed"
-                echo "DEBUG: Checking available Node.js versions..."
-                nvm list 2>&1 || echo "nvm list failed"
-                exit 1
-              fi
-              echo "DEBUG: nvm use succeeded"
-              # nvm use should update PATH, but ensure it's set correctly
-              if [ -n "${NVM_DIR:-}" ]; then
-                # Add nvm's current node version to PATH if not already there
-                CURRENT_NODE=$(nvm current 2>/dev/null || echo "v${NODE_VERSION:-22}")
-                NODE_BIN="$NVM_DIR/versions/node/$CURRENT_NODE/bin"
-                if [ -d "$NODE_BIN" ] && [[ ":$PATH:" != *":$NODE_BIN:"* ]]; then
-                  export PATH="$NODE_BIN:$PATH"
-                fi
-              fi
-              nvm alias default "${NODE_VERSION:-22}" || true
-            elif ! command -v node >/dev/null 2>&1; then
-              echo "ERROR: nvm not found and Node.js is not installed"
-              echo "Checked locations:"
-              if [ -n "${NVM_DIR:-}" ]; then
-                echo "  - \$NVM_DIR/nvm.sh: ${NVM_DIR}/nvm.sh ($([ -s "${NVM_DIR}/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
-              else
-                echo "  - \$NVM_DIR/nvm.sh: <not set>"
-              fi
-              echo "  - \$HOME/.nvm/nvm.sh: $HOME/.nvm/nvm.sh ($([ -s "$HOME/.nvm/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
-              echo "  - /root/.nvm/nvm.sh ($([ -s "/root/.nvm/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
-              echo "  - /usr/local/share/nvm/nvm.sh ($([ -s "/usr/local/share/nvm/nvm.sh" ] && echo 'exists' || echo 'NOT FOUND'))"
-              echo "Current HOME: $HOME"
-              echo "Current USER: $USER"
-              echo "Current PATH: $PATH"
-              echo ""
-              echo "NOTE: If nvm is installed in /root/.nvm but you're running as user '$USER',"
-              echo "you may need to either:"
-              echo "  1. Configure SSH to connect as root user"
-              echo "  2. Install nvm for user '$USER'"
-              echo "  3. Install Node.js system-wide"
-              exit 1
-            fi
+            # Use the Node version specified
+            nvm install "${NODE_VERSION:-22}" || true
+            nvm use "${NODE_VERSION:-22}"
 
             # Verify npm is available
             if ! command -v npm >/dev/null 2>&1; then
-              echo "ERROR: npm is not available"
+              echo "ERROR: npm is not available after nvm use"
+              echo "HOME: $HOME"
+              echo "NVM_DIR: $NVM_DIR"
               echo "PATH: $PATH"
               echo "Node version: $(command -v node || echo 'not found')"
               exit 1
