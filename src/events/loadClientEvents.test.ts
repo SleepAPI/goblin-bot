@@ -40,4 +40,3 @@ describe('loadClientEvents', () => {
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
   });
 });
-

@@ -70,4 +70,3 @@ describe('getEnv', () => {
     expect(second.LOG_LEVEL).toBe('info');
   });
 });
-

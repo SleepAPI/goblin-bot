@@ -25,12 +25,14 @@ function hasRecruitManagePerms(interaction: RecruitComponentInteraction): boolea
   const perms = interaction.memberPermissions;
   return Boolean(
     perms?.has(PermissionFlagsBits.Administrator) ||
-      perms?.has(PermissionFlagsBits.ManageThreads) ||
-      perms?.has(PermissionFlagsBits.ManageMessages)
+    perms?.has(PermissionFlagsBits.ManageThreads) ||
+    perms?.has(PermissionFlagsBits.ManageMessages)
   );
 }
 
-function parseCustomId(customId: string):
+function parseCustomId(
+  customId: string
+):
   | { kind: 'accept'; th: number; tagNoHash: string }
   | { kind: 'close'; tagNoHash: string }
   | { kind: 'settings'; th: number; tagNoHash: string }
@@ -346,9 +348,7 @@ async function handleSettingsRoles(interaction: RoleSelectMenuInteraction, th: n
   });
 }
 
-export async function handleRecruitComponentInteraction(
-  interaction: RecruitComponentInteraction
-): Promise<boolean> {
+export async function handleRecruitComponentInteraction(interaction: RecruitComponentInteraction): Promise<boolean> {
   const parsed = parseCustomId(interaction.customId);
   if (parsed.kind === 'unknown') return false;
 
@@ -384,4 +384,3 @@ export async function handleRecruitComponentInteraction(
 
   return false;
 }
-

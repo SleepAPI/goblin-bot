@@ -81,6 +81,10 @@ type CocApiError = {
   message?: string;
 };
 
+type ErrorWithStatus = Error & {
+  status: number;
+};
+
 export function normalizePlayerTag(input: string): string {
   const trimmed = input.trim().toUpperCase().replace(/\s+/g, '');
   if (!trimmed) return '';
@@ -136,12 +140,9 @@ export class ClashOfClansClient {
         // ignore
       }
 
-      const msg =
-        err?.message ||
-        err?.reason ||
-        `Clash of Clans API request failed (${res.status} ${res.statusText})`;
-      const e = new Error(msg);
-      (e as any).status = res.status;
+      const msg = err?.message || err?.reason || `Clash of Clans API request failed (${res.status} ${res.statusText})`;
+      const e = new Error(msg) as ErrorWithStatus;
+      e.status = res.status;
       throw e;
     }
 
@@ -172,9 +173,7 @@ export class ClashOfClansClient {
       throw new Error('Invalid clan tag');
     }
 
-    return await this.request<CocWarLeagueGroup>(
-      `/clans/${encodeURIComponent(tag)}/currentwar/leaguegroup`
-    );
+    return await this.request<CocWarLeagueGroup>(`/clans/${encodeURIComponent(tag)}/currentwar/leaguegroup`);
   }
 
   async getCwlWarByTag(warTag: string): Promise<CocCwlWar> {
@@ -186,5 +185,3 @@ export class ClashOfClansClient {
     return await this.request<CocCwlWar>(`/clanwarleagues/wars/${encodeURIComponent(tag)}`);
   }
 }
-
-

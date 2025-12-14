@@ -1,0 +1,15 @@
+# file types
+**/*.yml
+**/*.yaml
+*.d.ts
+
+# specific files
+.gitignore
+.prettierignore
+package-lock.json
+CHANGELOG.md
+
+# directories
+dist
+coverage
+node_modules

@@ -9,22 +9,14 @@ import {
   type AnyThreadChannel
 } from 'discord.js';
 import type { ChatInputCommand } from '@/commands/types';
-import {
-  ClashOfClansClient,
-  isValidPlayerTag,
-  type CocWarAttack,
-  type CocWarMember
-} from '@/integrations/clashOfClans/client';
+import { ClashOfClansClient, isValidPlayerTag, type CocWarMember } from '@/integrations/clashOfClans/client';
 import { getInstanceLabel } from '@/utils/instance';
 
 function formatCocTime(input?: string): string | undefined {
   if (!input) return undefined;
   const iso = input.includes('.') ? input : input.replace(/(\.\d{3}Z)?$/, '.000Z');
   // CoC uses e.g. 20250101T000000.000Z
-  const normalized = iso.replace(
-    /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})\.(\d{3})Z$/,
-    '$1-$2-$3T$4:$5:$6.$7Z'
-  );
+  const normalized = iso.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})\.(\d{3})Z$/, '$1-$2-$3T$4:$5:$6.$7Z');
   const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return undefined;
   return `<t:${Math.floor(d.getTime() / 1000)}:R>`;
@@ -72,12 +64,7 @@ const command: ChatInputCommand = {
   data: new SlashCommandBuilder()
     .setName('recruit')
     .setDescription('Look up a Clash of Clans player by tag')
-    .addStringOption((opt) =>
-      opt
-        .setName('player_tag')
-        .setDescription('Player tag, e.g. #ABC123')
-        .setRequired(true)
-    ),
+    .addStringOption((opt) => opt.setName('player_tag').setDescription('Player tag, e.g. #ABC123').setRequired(true)),
   async execute(interaction) {
     await interaction.deferReply();
 
@@ -198,7 +185,7 @@ const command: ChatInputCommand = {
                 .filter((t) => t && t !== '#0')
                 .slice(0, 8) ?? [];
 
-            let cwlRows: WarAttackRow[] = [];
+            const cwlRows: WarAttackRow[] = [];
             for (const warTag of warTags) {
               try {
                 const war = await client.getCwlWarByTag(warTag);
@@ -343,8 +330,7 @@ const command: ChatInputCommand = {
         await interaction.editReply('Could not create a thread in this channel.');
       }
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : 'Failed to look up that player. Please try again.';
+      const msg = err instanceof Error ? err.message : 'Failed to look up that player. Please try again.';
       await interaction.editReply({
         content:
           `Could not look up that player tag.\n` +
@@ -358,4 +344,3 @@ const command: ChatInputCommand = {
 };
 
 export default command;
-

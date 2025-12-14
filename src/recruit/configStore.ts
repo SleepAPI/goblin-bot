@@ -65,11 +65,7 @@ export async function getRecruitRoleIdsForTownHall(guildId: string, th: number):
   return normalizeRoleIds(guild?.thRoleIds?.[String(th)] ?? []);
 }
 
-export async function setRecruitRoleIdsForTownHall(
-  guildId: string,
-  th: number,
-  roleIds: string[]
-): Promise<void> {
+export async function setRecruitRoleIdsForTownHall(guildId: string, th: number, roleIds: string[]): Promise<void> {
   assertTownHall(th);
 
   const cleaned = normalizeRoleIds(roleIds);
@@ -108,4 +104,3 @@ export async function getRecruitRoleMappingSummary(guildId: string): Promise<str
 
   return lines.length > 0 ? lines.join('\n') : '_No leader roles configured yet._';
 }
-

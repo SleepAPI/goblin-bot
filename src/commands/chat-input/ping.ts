@@ -3,9 +3,7 @@ import type { ChatInputCommand } from '@/commands/types';
 import { getInstanceLabel } from '@/utils/instance';
 
 const command: ChatInputCommand = {
-  data: new SlashCommandBuilder()
-    .setName('ping')
-    .setDescription('Replies with Pong!'),
+  data: new SlashCommandBuilder().setName('ping').setDescription('Replies with Pong!'),
   async execute(interaction) {
     const sentAt = Date.now();
     await interaction.reply({

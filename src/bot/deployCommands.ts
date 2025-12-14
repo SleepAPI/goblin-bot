@@ -8,10 +8,7 @@ export async function deployCommands() {
   const body = loadChatInputCommands().map((c) => c.data.toJSON());
 
   if (env.DISCORD_GUILD_ID) {
-    return await rest.put(
-      Routes.applicationGuildCommands(env.DISCORD_CLIENT_ID, env.DISCORD_GUILD_ID),
-      { body }
-    );
+    return await rest.put(Routes.applicationGuildCommands(env.DISCORD_CLIENT_ID, env.DISCORD_GUILD_ID), { body });
   }
 
   return await rest.put(Routes.applicationCommands(env.DISCORD_CLIENT_ID), { body });
