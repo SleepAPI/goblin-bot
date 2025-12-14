@@ -167,34 +167,60 @@ jobs:
             echo "Looking for nvm..."
             NVM_LOADED=false
             
-            # Try common nvm locations
-            if [ -n "${NVM_DIR:-}" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
-              echo "Found nvm at \$NVM_DIR: $NVM_DIR"
-              export NVM_DIR
-              . "$NVM_DIR/nvm.sh"
-              NVM_LOADED=true
-            elif [ -s "$HOME/.nvm/nvm.sh" ]; then
-              echo "Found nvm at \$HOME/.nvm"
-              export NVM_DIR="$HOME/.nvm"
-              . "$NVM_DIR/nvm.sh"
-              NVM_LOADED=true
-            elif [ -s "/usr/local/share/nvm/nvm.sh" ]; then
-              echo "Found nvm at /usr/local/share/nvm"
-              export NVM_DIR="/usr/local/share/nvm"
-              . "$NVM_DIR/nvm.sh"
-              NVM_LOADED=true
-            else
-              # Try to find nvm.sh by checking common install locations
-              echo "Searching for nvm.sh..."
-              for nvm_path in "$HOME/.nvm" "/usr/local/share/nvm" "/opt/nvm" "$HOME/.local/share/nvm"; do
-                if [ -s "$nvm_path/nvm.sh" ]; then
-                  echo "Found nvm at $nvm_path"
-                  export NVM_DIR="$nvm_path"
-                  . "$NVM_DIR/nvm.sh"
-                  NVM_LOADED=true
-                  break
+            # First, try sourcing shell profile files (where nvm is typically loaded in interactive shells)
+            # This is often how nvm gets loaded when you SSH interactively
+            if [ -f "$HOME/.bashrc" ] && grep -q "nvm.sh" "$HOME/.bashrc" 2>/dev/null; then
+              echo "Found nvm reference in .bashrc, sourcing it..."
+              # Source .bashrc but only if it has nvm (to avoid side effects)
+              . "$HOME/.bashrc" 2>/dev/null || true
+              if type nvm >/dev/null 2>&1; then
+                echo "nvm loaded from .bashrc"
+                NVM_LOADED=true
+              fi
+            fi
+            
+            # If not loaded from profile, try direct nvm.sh locations
+            if [ "$NVM_LOADED" = false ]; then
+              if [ -n "${NVM_DIR:-}" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
+                echo "Found nvm at \$NVM_DIR: $NVM_DIR"
+                export NVM_DIR
+                . "$NVM_DIR/nvm.sh"
+                NVM_LOADED=true
+              elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+                echo "Found nvm at \$HOME/.nvm"
+                export NVM_DIR="$HOME/.nvm"
+                . "$NVM_DIR/nvm.sh"
+                NVM_LOADED=true
+              elif [ -s "/usr/local/share/nvm/nvm.sh" ]; then
+                echo "Found nvm at /usr/local/share/nvm"
+                export NVM_DIR="/usr/local/share/nvm"
+                . "$NVM_DIR/nvm.sh"
+                NVM_LOADED=true
+              else
+                # Try to find nvm.sh by checking common install locations
+                echo "Searching for nvm.sh..."
+                for nvm_path in "$HOME/.nvm" "/usr/local/share/nvm" "/opt/nvm" "$HOME/.local/share/nvm"; do
+                  if [ -s "$nvm_path/nvm.sh" ]; then
+                    echo "Found nvm at $nvm_path"
+                    export NVM_DIR="$nvm_path"
+                    . "$NVM_DIR/nvm.sh"
+                    NVM_LOADED=true
+                    break
+                  fi
+                done
+                
+                # If still not found, try to find it via find command (as last resort)
+                if [ "$NVM_LOADED" = false ]; then
+                  echo "Trying to locate nvm.sh using find..."
+                  NVM_FOUND=$(find "$HOME" -name "nvm.sh" -type f 2>/dev/null | head -1)
+                  if [ -n "$NVM_FOUND" ] && [ -s "$NVM_FOUND" ]; then
+                    echo "Found nvm.sh at $NVM_FOUND"
+                    export NVM_DIR=$(dirname "$NVM_FOUND")
+                    . "$NVM_DIR/nvm.sh"
+                    NVM_LOADED=true
+                  fi
                 fi
-              done
+              fi
             fi
 
             # Verify nvm was loaded
@@ -237,7 +263,11 @@ jobs:
             elif ! command -v node >/dev/null 2>&1; then
               echo "ERROR: nvm not found and Node.js is not installed"
               echo "Checked locations:"
-              echo "  - \$NVM_DIR/nvm.sh: ${NVM_DIR:-<not set>}"
+              if [ -n "${NVM_DIR:-}" ]; then
+                echo "  - \$NVM_DIR/nvm.sh: $NVM_DIR"
+              else
+                echo "  - \$NVM_DIR/nvm.sh: <not set>"
+              fi
               echo "  - \$HOME/.nvm/nvm.sh: $HOME/.nvm/nvm.sh"
               echo "  - /usr/local/share/nvm/nvm.sh"
               echo "Current PATH: $PATH"
