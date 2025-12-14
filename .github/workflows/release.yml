@@ -207,14 +207,64 @@ jobs:
 
             npm ci --omit=dev
 
+            # PM2 process management
+            echo "=== PM2 Process Management ==="
             if command -v pm2 >/dev/null 2>&1; then
-              if pm2 describe "\$APP_NAME" > /dev/null 2>&1; then
-                pm2 restart "\$APP_NAME" --update-env
-              else
-                pm2 start "\$DEPLOY_PATH/dist/index.js" --name "\$APP_NAME" --time
+              echo "pm2 is available at: \$(command -v pm2)"
+              echo "Current PM2 processes:"
+              pm2 list || echo "pm2 list failed"
+              
+              # Verify the entry point exists
+              ENTRY_POINT="\$DEPLOY_PATH/dist/index.js"
+              echo "Checking for entry point: \$ENTRY_POINT"
+              if [ ! -f "\$ENTRY_POINT" ]; then
+                echo "ERROR: Entry point not found at \$ENTRY_POINT"
+                echo "Contents of \$DEPLOY_PATH/dist:"
+                ls -la "\$DEPLOY_PATH/dist" 2>/dev/null || echo "dist directory does not exist"
+                exit 1
               fi
-              pm2 save
+              echo "✓ Entry point exists"
+              
+              # Check if process exists
+              if pm2 describe "\$APP_NAME" > /dev/null 2>&1; then
+                echo "Process '\$APP_NAME' exists, restarting..."
+                pm2 restart "\$APP_NAME" --update-env
+                RESTART_RESULT=\$?
+                if [ \$RESTART_RESULT -ne 0 ]; then
+                  echo "ERROR: pm2 restart failed with exit code \$RESTART_RESULT"
+                  pm2 logs "\$APP_NAME" --lines 20 --nostream || true
+                  exit 1
+                fi
+              else
+                echo "Process '\$APP_NAME' does not exist, starting..."
+                pm2 start "\$ENTRY_POINT" --name "\$APP_NAME" --time
+                START_RESULT=\$?
+                if [ \$START_RESULT -ne 0 ]; then
+                  echo "ERROR: pm2 start failed with exit code \$START_RESULT"
+                  pm2 logs "\$APP_NAME" --lines 20 --nostream || true
+                  exit 1
+                fi
+              fi
+              
+              # Verify process is running
+              echo "Verifying process status..."
+              pm2 list
+              if pm2 list | grep -q "\$APP_NAME.*online"; then
+                echo "✓ Process '\$APP_NAME' is online"
+                pm2 save
+                echo "✓ PM2 process list saved"
+              else
+                echo "ERROR: Process '\$APP_NAME' is not online"
+                echo "PM2 status:"
+                pm2 describe "\$APP_NAME" || echo "pm2 describe failed"
+                echo "Recent logs:"
+                pm2 logs "\$APP_NAME" --lines 30 --nostream || echo "pm2 logs failed"
+                exit 1
+              fi
             else
-              echo "pm2 is not installed on server; skipping process restart"
+              echo "ERROR: pm2 is not installed on server"
+              echo "PATH: \$PATH"
+              exit 1
             fi
+            echo "============================="
           ENDSSH
