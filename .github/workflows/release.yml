@@ -160,7 +160,7 @@ jobs:
             : "\${DISCORD_TOKEN:?Missing DISCORD_TOKEN (configure GitHub Secret)}"
             : "\${DISCORD_CLIENT_ID:?Missing DISCORD_CLIENT_ID (configure GitHub Secret)}"
 
-            cd "$DEPLOY_PATH"
+            cd "\$DEPLOY_PATH"
 
             # Load nvm and use the correct Node version (same approach as SleepAPI)
             export NVM_DIR="\$HOME/.nvm"
@@ -181,6 +181,17 @@ jobs:
             fi
             echo "Using Node.js \$(node --version) and npm \$(npm --version)"
 
+            # Verify package files are present
+            echo "Checking for package files in \$DEPLOY_PATH..."
+            ls -la "\$DEPLOY_PATH" | grep -E "(package.json|package-lock.json)" || echo "WARNING: package files not found"
+            
+            if [ ! -f "\$DEPLOY_PATH/package-lock.json" ]; then
+              echo "ERROR: package-lock.json not found in \$DEPLOY_PATH"
+              echo "Contents of \$DEPLOY_PATH:"
+              ls -la "\$DEPLOY_PATH"
+              exit 1
+            fi
+
             # Install build dependencies if not already present (needed for native modules)
             if ! command -v make >/dev/null 2>&1; then
               echo "Installing build dependencies..."
@@ -197,10 +208,10 @@ jobs:
             npm ci --omit=dev
 
             if command -v pm2 >/dev/null 2>&1; then
-              if pm2 describe "$APP_NAME" > /dev/null 2>&1; then
-                pm2 restart "$APP_NAME" --update-env
+              if pm2 describe "\$APP_NAME" > /dev/null 2>&1; then
+                pm2 restart "\$APP_NAME" --update-env
               else
-                pm2 start "$DEPLOY_PATH/dist/index.js" --name "$APP_NAME" --time
+                pm2 start "\$DEPLOY_PATH/dist/index.js" --name "\$APP_NAME" --time
               fi
               pm2 save
             else
