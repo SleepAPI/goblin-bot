@@ -180,6 +180,11 @@ jobs:
               exit 1
             fi
             echo "Using Node.js \$(node --version) and npm \$(npm --version)"
+            
+            # Ensure npm global bin is in PATH (where pm2 would be installed)
+            export PATH="\$(npm config get prefix)/bin:\$PATH"
+            echo "npm global prefix: \$(npm config get prefix)"
+            echo "Updated PATH: \$PATH"
 
             # Verify package files are present
             echo "Checking for package files in \$DEPLOY_PATH..."
@@ -209,10 +214,36 @@ jobs:
 
             # PM2 process management
             echo "=== PM2 Process Management ==="
-            if command -v pm2 >/dev/null 2>&1; then
-              echo "pm2 is available at: \$(command -v pm2)"
-              echo "Current PM2 processes:"
-              pm2 list || echo "pm2 list failed"
+            # Ensure npm global bin is in PATH (where pm2 should be)
+            # nvm use should add this, but let's make sure
+            NPM_GLOBAL_BIN="\$(npm config get prefix)/bin"
+            if [[ ":\$PATH:" != *":\$NPM_GLOBAL_BIN:"* ]]; then
+              export PATH="\$NPM_GLOBAL_BIN:\$PATH"
+              echo "Added npm global bin to PATH: \$NPM_GLOBAL_BIN"
+            fi
+            
+            # Check for pm2
+            if ! command -v pm2 >/dev/null 2>&1; then
+              echo "pm2 not found, installing globally..."
+              npm install -g pm2
+              # Refresh PATH after install
+              export PATH="\$(npm config get prefix)/bin:\$PATH"
+              if ! command -v pm2 >/dev/null 2>&1; then
+                echo "ERROR: pm2 still not found after installation"
+                echo "npm global prefix: \$(npm config get prefix)"
+                echo "PATH: \$PATH"
+                echo "Checking for pm2 in common locations:"
+                ls -la "\$(npm config get prefix)/bin/pm2" 2>/dev/null || echo "  Not in npm global bin"
+                ls -la "\$HOME/.nvm/versions/node/\$(node --version)/bin/pm2" 2>/dev/null || echo "  Not in nvm node bin"
+                exit 1
+              fi
+              echo "✓ pm2 installed successfully"
+            fi
+            
+            echo "pm2 is available at: \$(command -v pm2)"
+            echo "pm2 version: \$(pm2 --version || echo 'unknown')"
+            echo "Current PM2 processes:"
+            pm2 list || echo "pm2 list failed (this is normal if no processes are running)"
               
               # Verify the entry point exists
               ENTRY_POINT="\$DEPLOY_PATH/dist/index.js"
@@ -261,10 +292,5 @@ jobs:
                 pm2 logs "\$APP_NAME" --lines 30 --nostream || echo "pm2 logs failed"
                 exit 1
               fi
-            else
-              echo "ERROR: pm2 is not installed on server"
-              echo "PATH: \$PATH"
-              exit 1
-            fi
             echo "============================="
           ENDSSH
