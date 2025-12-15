@@ -1,8 +1,8 @@
-import { ActionRowBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommand } from '@/commands/types';
 import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
-import { getRoleIdsFromMember } from '@/utils/discordRoles';
 import { getRecruitAllowedRoleSummary, getRecruitRoleMappingSummary } from '@/recruit/configStore';
+import { getRoleIdsFromMember } from '@/utils/discordRoles';
+import { ActionRowBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder } from 'discord.js';
 
 const command: ChatInputCommand = {
   data: new SlashCommandBuilder()
@@ -11,7 +11,7 @@ const command: ChatInputCommand = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
   async execute(interaction) {
-    if (!interaction.inGuild()) {
+    if (!interaction.inGuild() || !interaction.guild || !interaction.guildId) {
       await interaction.reply({
         content: 'This command can only be used inside a server.',
         ephemeral: true
@@ -19,9 +19,12 @@ const command: ChatInputCommand = {
       return;
     }
 
+    const guild = interaction.guild;
+    const guildId = interaction.guildId;
+
     const leaderRole =
-      interaction.guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
-      (await interaction.guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
+      guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
+      (await guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
 
     if (!leaderRole) {
       await interaction.reply({
@@ -40,7 +43,7 @@ const command: ChatInputCommand = {
       return;
     }
 
-    const recruitSummary = await getRecruitRoleMappingSummary(interaction.guildId);
+    const recruitSummary = await getRecruitRoleMappingSummary(guildId);
     const rolesSelect = new RoleSelectMenuBuilder()
       .setCustomId('family-settings:recruit_roles')
       .setPlaceholder('Select roles allowed to use /recruit')
@@ -48,7 +51,7 @@ const command: ChatInputCommand = {
       .setMaxValues(25);
 
     const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(rolesSelect);
-    const allowedSummary = await getRecruitAllowedRoleSummary(interaction.guildId);
+    const allowedSummary = await getRecruitAllowedRoleSummary(guildId);
 
     await interaction.reply({
       content:

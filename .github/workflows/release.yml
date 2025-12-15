@@ -98,7 +98,6 @@ jobs:
           CLASH_OF_CLANS_API_TOKEN: ${{ secrets.CLASH_OF_CLANS_API_TOKEN }}
           CLASH_OF_CLANS_API_BASE_URL: ${{ vars.CLASH_OF_CLANS_API_BASE_URL }}
           CLASH_OF_CLANS_API_TIMEOUT_MS: ${{ vars.CLASH_OF_CLANS_API_TIMEOUT_MS }}
-          BOT_INSTANCE_LABEL: ${{ vars.BOT_INSTANCE_LABEL }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
         run: |
           if [ -z "$SSH_HOST" ]; then
@@ -129,7 +128,6 @@ jobs:
             export CLASH_OF_CLANS_API_TOKEN="${{ secrets.CLASH_OF_CLANS_API_TOKEN }}"
             export CLASH_OF_CLANS_API_BASE_URL="${{ vars.CLASH_OF_CLANS_API_BASE_URL }}"
             export CLASH_OF_CLANS_API_TIMEOUT_MS="${{ vars.CLASH_OF_CLANS_API_TIMEOUT_MS }}"
-            export BOT_INSTANCE_LABEL="${{ vars.BOT_INSTANCE_LABEL }}"
             export LOG_LEVEL="${{ vars.LOG_LEVEL }}"
             
             # Important: GitHub passes unset secrets/vars as empty strings. Our Zod env parsing
@@ -138,7 +136,6 @@ jobs:
             if [ -z "\${CLASH_OF_CLANS_API_TOKEN:-}" ]; then unset CLASH_OF_CLANS_API_TOKEN; fi
             if [ -z "\${CLASH_OF_CLANS_API_BASE_URL:-}" ]; then unset CLASH_OF_CLANS_API_BASE_URL; fi
             if [ -z "\${CLASH_OF_CLANS_API_TIMEOUT_MS:-}" ]; then unset CLASH_OF_CLANS_API_TIMEOUT_MS; fi
-            if [ -z "\${BOT_INSTANCE_LABEL:-}" ]; then unset BOT_INSTANCE_LABEL; fi
             if [ -z "\${LOG_LEVEL:-}" ]; then unset LOG_LEVEL; fi
             
             # Log environment variables (masking sensitive values)
@@ -153,7 +150,6 @@ jobs:
             echo "CLASH_OF_CLANS_API_TOKEN=\${CLASH_OF_CLANS_API_TOKEN:+SET (\${#CLASH_OF_CLANS_API_TOKEN} chars)}"
             echo "CLASH_OF_CLANS_API_BASE_URL=\${CLASH_OF_CLANS_API_BASE_URL:-<not set>}"
             echo "CLASH_OF_CLANS_API_TIMEOUT_MS=\${CLASH_OF_CLANS_API_TIMEOUT_MS:-<not set>}"
-            echo "BOT_INSTANCE_LABEL=\${BOT_INSTANCE_LABEL:-<not set>}"
             echo "LOG_LEVEL=\${LOG_LEVEL:-<not set>}"
             echo "============================="
             

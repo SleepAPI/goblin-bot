@@ -3,7 +3,6 @@ import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
 import { ClashOfClansClient, isValidPlayerTag, type CocWarMember } from '@/integrations/clashOfClans/client';
 import { getRecruitAllowedRoleIds } from '@/recruit/configStore';
 import { getRoleIdsFromMember } from '@/utils/discordRoles';
-import { getInstanceLabel } from '@/utils/instance';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -199,7 +198,7 @@ const command: ChatInputCommand = {
         )
     ),
   async execute(interaction) {
-    if (!interaction.inGuild()) {
+    if (!interaction.inGuild() || !interaction.guild || !interaction.guildId) {
       await interaction.reply({
         content: 'This command can only create threads inside a server channel.',
         ephemeral: true
@@ -207,9 +206,12 @@ const command: ChatInputCommand = {
       return;
     }
 
+    const guild = interaction.guild;
+    const guildId = interaction.guildId;
+
     const leaderRole =
-      interaction.guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
-      (await interaction.guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
+      guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
+      (await guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
 
     if (!leaderRole) {
       await interaction.reply({
@@ -220,7 +222,7 @@ const command: ChatInputCommand = {
     }
 
     const memberRoleIds = getRoleIdsFromMember(interaction.member);
-    const allowedIds = await getRecruitAllowedRoleIds(interaction.guildId);
+    const allowedIds = await getRecruitAllowedRoleIds(guildId);
     const hasLeaderRole = memberRoleIds.has(FAMILY_LEADER_ROLE_ID);
     const hasAllowedRole = allowedIds.some((id) => memberRoleIds.has(id));
 
@@ -509,12 +511,7 @@ const command: ChatInputCommand = {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to look up that player. Please try again.';
       await interaction.editReply({
-        content:
-          `Could not look up that player tag.\n` +
-          `- Tag: \`${playerTag}\`\n` +
-          `- Error: ${msg}\n` +
-          `- Instance: ${getInstanceLabel()}\n` +
-          `Make sure \`CLASH_OF_CLANS_API_TOKEN\` is set in your environment and the tag is correct.`
+        content: `Could not look up that player tag.\n` + `- Tag: \`${playerTag}\`\n` + `- Error: ${msg}\n`
       });
     }
   }

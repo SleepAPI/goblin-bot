@@ -79,7 +79,7 @@ function parseCustomId(
 }
 
 async function handleAccept(interaction: ButtonInteraction, th: number, tagNoHash: string) {
-  if (!interaction.inGuild()) {
+  if (!interaction.inGuild() || !interaction.guild || !interaction.guildId) {
     await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
     return;
   }
@@ -99,7 +99,10 @@ async function handleAccept(interaction: ButtonInteraction, th: number, tagNoHas
     return;
   }
 
-  const roleIds = await getRecruitRoleIdsForTownHall(interaction.guildId, th);
+  const guild = interaction.guild;
+  const guildId = interaction.guildId;
+
+  const roleIds = await getRecruitRoleIdsForTownHall(guildId, th);
   if (roleIds.length === 0) {
     await interaction.reply({
       content: `No leader roles are configured for TH${th}. Use the ⚙️ Settings button to configure.`,
@@ -123,7 +126,7 @@ async function handleAccept(interaction: ButtonInteraction, th: number, tagNoHas
 
   // Multiple leader roles match: let the user choose which to ping (and allow multiple).
   const options = roleIds.slice(0, 25).map((roleId) => {
-    const role = interaction.guild.roles.cache.get(roleId);
+    const role = guild.roles.cache.get(roleId);
     return {
       label: role?.name ?? `Role ${roleId}`,
       value: roleId
@@ -147,7 +150,7 @@ async function handleAccept(interaction: ButtonInteraction, th: number, tagNoHas
 }
 
 async function handlePick(interaction: StringSelectMenuInteraction, th: number, tagNoHash: string) {
-  if (!interaction.inGuild()) {
+  if (!interaction.inGuild() || !interaction.guildId) {
     await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
     return;
   }
@@ -178,7 +181,7 @@ async function handlePick(interaction: StringSelectMenuInteraction, th: number, 
 }
 
 async function handleClose(interaction: ButtonInteraction, tagNoHash: string, replyMessageId?: string) {
-  if (!interaction.inGuild()) {
+  if (!interaction.inGuild() || !interaction.guildId) {
     await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
     return;
   }
@@ -196,7 +199,7 @@ async function handleClose(interaction: ButtonInteraction, tagNoHash: string, re
   if (replyMessageId && interaction.channel?.isThread()) {
     try {
       const parentChannel = interaction.channel.parent;
-      if (parentChannel) {
+      if (parentChannel?.isTextBased() && 'messages' in parentChannel) {
         const originalMessage = await parentChannel.messages.fetch(replyMessageId).catch(() => null);
         if (originalMessage && originalMessage.editable) {
           const threadMention = `<#${interaction.channel.id}>`;
@@ -271,7 +274,7 @@ function buildSettingsRows(opts: { th: number }) {
 }
 
 async function handleSettingsOpen(interaction: ButtonInteraction, th: number) {
-  if (!interaction.inGuild()) {
+  if (!interaction.inGuild() || !interaction.guildId) {
     await interaction.reply({ content: 'This can only be used in a server.', ephemeral: true });
     return;
   }
@@ -283,9 +286,11 @@ async function handleSettingsOpen(interaction: ButtonInteraction, th: number) {
     return;
   }
 
+  const guildId = interaction.guildId;
+
   const safeTh = Number.isInteger(th) && th >= 1 && th <= 18 ? th : 1;
-  const currentForTh = await getRecruitRoleIdsForTownHall(interaction.guildId, safeTh);
-  const summary = await getRecruitRoleMappingSummary(interaction.guildId);
+  const currentForTh = await getRecruitRoleIdsForTownHall(guildId, safeTh);
+  const summary = await getRecruitRoleMappingSummary(guildId);
 
   const { row1, row2 } = buildSettingsRows({ th: safeTh });
 
@@ -317,11 +322,12 @@ async function handleSettingsTh(interaction: StringSelectMenuInteraction, th: nu
     return;
   }
 
+  const guildId = interaction.guildId;
   const selected = Number(interaction.values?.[0]);
   const nextTh = Number.isInteger(selected) && selected >= 1 && selected <= 18 ? selected : th;
 
-  const currentForTh = await getRecruitRoleIdsForTownHall(interaction.guildId, nextTh);
-  const summary = await getRecruitRoleMappingSummary(interaction.guildId);
+  const currentForTh = await getRecruitRoleIdsForTownHall(guildId, nextTh);
+  const summary = await getRecruitRoleMappingSummary(guildId);
   const { row1, row2 } = buildSettingsRows({ th: nextTh });
   (row1.components[0] as StringSelectMenuBuilder).setCustomId(`recruit:settings_th:${nextTh}:cfg`);
   (row2.components[0] as RoleSelectMenuBuilder).setCustomId(`recruit:settings_roles:${nextTh}:cfg`);
@@ -349,11 +355,12 @@ async function handleSettingsRoles(interaction: RoleSelectMenuInteraction, th: n
     return;
   }
 
+  const guildId = interaction.guildId;
   const picked = Array.from(new Set((interaction.values ?? []).slice(0, 25)));
-  await setRecruitRoleIdsForTownHall(interaction.guildId, th, picked);
+  await setRecruitRoleIdsForTownHall(guildId, th, picked);
 
-  const currentForTh = await getRecruitRoleIdsForTownHall(interaction.guildId, th);
-  const summary = await getRecruitRoleMappingSummary(interaction.guildId);
+  const currentForTh = await getRecruitRoleIdsForTownHall(guildId, th);
+  const summary = await getRecruitRoleMappingSummary(guildId);
   const { row1, row2 } = buildSettingsRows({ th });
   (row1.components[0] as StringSelectMenuBuilder).setCustomId(`recruit:settings_th:${th}:cfg`);
   (row2.components[0] as RoleSelectMenuBuilder).setCustomId(`recruit:settings_roles:${th}:cfg`);

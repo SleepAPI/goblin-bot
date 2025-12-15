@@ -10,7 +10,7 @@ const command: ChatInputCommand = {
     .setDescription('Show all open recruit threads in this server')
     .setDMPermission(false),
   async execute(interaction) {
-    if (!interaction.inGuild()) {
+    if (!interaction.inGuild() || !interaction.guild || !interaction.guildId) {
       await interaction.reply({
         content: 'This command can only be used inside a server channel.',
         ephemeral: true
@@ -18,9 +18,12 @@ const command: ChatInputCommand = {
       return;
     }
 
+    const guild = interaction.guild;
+    const guildId = interaction.guildId;
+
     const leaderRole =
-      interaction.guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
-      (await interaction.guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
+      guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
+      (await guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
 
     if (!leaderRole) {
       await interaction.reply({
@@ -31,7 +34,7 @@ const command: ChatInputCommand = {
     }
 
     const memberRoleIds = getRoleIdsFromMember(interaction.member);
-    const allowedIds = await getRecruitAllowedRoleIds(interaction.guildId);
+    const allowedIds = await getRecruitAllowedRoleIds(guildId);
     const hasLeaderRole = memberRoleIds.has(FAMILY_LEADER_ROLE_ID);
     const hasAllowedRole = allowedIds.some((id) => memberRoleIds.has(id));
 
@@ -52,7 +55,7 @@ const command: ChatInputCommand = {
     }
 
     try {
-      const fetched = await interaction.guild.channels.fetchActiveThreads();
+      const fetched = await guild.channels.fetchActiveThreads();
       const openThreads = fetched.threads.filter((thread) => !thread.archived && thread.ownerId === botId);
 
       if (openThreads.size === 0) {

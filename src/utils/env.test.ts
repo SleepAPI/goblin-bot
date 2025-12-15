@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SAVED: Record<string, string | undefined> = {};
 const KEYS = [
@@ -8,7 +8,6 @@ const KEYS = [
   'CLASH_OF_CLANS_API_TOKEN',
   'CLASH_OF_CLANS_API_BASE_URL',
   'CLASH_OF_CLANS_API_TIMEOUT_MS',
-  'BOT_INSTANCE_LABEL',
   'LOG_LEVEL'
 ] as const;
 

@@ -1,13 +1,19 @@
-import { ActionRowBuilder, RoleSelectMenuBuilder, type RoleSelectMenuInteraction } from 'discord.js';
 import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
-import { getRoleIdsFromMember } from '@/utils/discordRoles';
 import {
   getRecruitAllowedRoleSummary,
   getRecruitRoleMappingSummary,
   setRecruitAllowedRoleIds
 } from '@/recruit/configStore';
+import { getRoleIdsFromMember } from '@/utils/discordRoles';
+import {
+  ActionRowBuilder,
+  RoleSelectMenuBuilder,
+  type ButtonInteraction,
+  type RoleSelectMenuInteraction,
+  type StringSelectMenuInteraction
+} from 'discord.js';
 
-type FamilySettingsComponentInteraction = RoleSelectMenuInteraction;
+type FamilySettingsComponentInteraction = RoleSelectMenuInteraction | ButtonInteraction | StringSelectMenuInteraction;
 
 function buildRolesSelect(): ActionRowBuilder<RoleSelectMenuBuilder> {
   const rolesSelect = new RoleSelectMenuBuilder()
@@ -20,14 +26,16 @@ function buildRolesSelect(): ActionRowBuilder<RoleSelectMenuBuilder> {
 }
 
 async function handleRecruitRoles(interaction: RoleSelectMenuInteraction) {
-  if (!interaction.inGuild()) {
+  if (!interaction.inGuild() || !interaction.guild || !interaction.guildId) {
     await interaction.reply({ content: 'This can only be used inside a server.', ephemeral: true });
     return;
   }
 
+  const guild = interaction.guild;
+  const guildId = interaction.guildId;
+
   const leaderRole =
-    interaction.guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
-    (await interaction.guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
+    guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ?? (await guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
 
   if (!leaderRole) {
     await interaction.reply({
@@ -47,10 +55,10 @@ async function handleRecruitRoles(interaction: RoleSelectMenuInteraction) {
   }
 
   const selected = Array.from(new Set((interaction.values ?? []).slice(0, 25)));
-  await setRecruitAllowedRoleIds(interaction.guildId, selected);
+  await setRecruitAllowedRoleIds(guildId, selected);
 
-  const allowedSummary = await getRecruitAllowedRoleSummary(interaction.guildId);
-  const recruitSummary = await getRecruitRoleMappingSummary(interaction.guildId);
+  const allowedSummary = await getRecruitAllowedRoleSummary(guildId);
+  const recruitSummary = await getRecruitRoleMappingSummary(guildId);
 
   await interaction.update({
     content:
