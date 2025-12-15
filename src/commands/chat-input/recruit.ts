@@ -1,3 +1,9 @@
+import type { ChatInputCommand } from '@/commands/types';
+import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
+import { ClashOfClansClient, isValidPlayerTag, type CocWarMember } from '@/integrations/clashOfClans/client';
+import { getRecruitAllowedRoleIds } from '@/recruit/configStore';
+import { getRoleIdsFromMember } from '@/utils/discordRoles';
+import { getInstanceLabel } from '@/utils/instance';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -8,12 +14,126 @@ import {
   ThreadAutoArchiveDuration,
   type AnyThreadChannel
 } from 'discord.js';
-import type { ChatInputCommand } from '@/commands/types';
-import { ClashOfClansClient, isValidPlayerTag, type CocWarMember } from '@/integrations/clashOfClans/client';
-import { getInstanceLabel } from '@/utils/instance';
-import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
-import { getRoleIdsFromMember } from '@/utils/discordRoles';
-import { getRecruitAllowedRoleIds } from '@/recruit/configStore';
+
+// Hero max levels per Town Hall level (from Clash of Clans Wiki)
+const HERO_MAX_LEVELS: Record<number, Record<string, number>> = {
+  7: {
+    'Barbarian King': 10
+  },
+  8: {
+    'Barbarian King': 20,
+    'Archer Queen': 10
+  },
+  9: {
+    'Barbarian King': 30,
+    'Archer Queen': 30,
+    'Minion Prince': 10
+  },
+  10: {
+    'Barbarian King': 40,
+    'Archer Queen': 40,
+    'Minion Prince': 20
+  },
+  11: {
+    'Barbarian King': 50,
+    'Archer Queen': 50,
+    'Minion Prince': 30,
+    'Grand Warden': 20
+  },
+  12: {
+    'Barbarian King': 65,
+    'Archer Queen': 65,
+    'Minion Prince': 40,
+    'Grand Warden': 40
+  },
+  13: {
+    'Barbarian King': 75,
+    'Archer Queen': 75,
+    'Minion Prince': 50,
+    'Grand Warden': 50,
+    'Royal Champion': 25
+  },
+  14: {
+    'Barbarian King': 85,
+    'Archer Queen': 85,
+    'Minion Prince': 60,
+    'Grand Warden': 60,
+    'Royal Champion': 30
+  },
+  15: {
+    'Barbarian King': 90,
+    'Archer Queen': 90,
+    'Minion Prince': 70,
+    'Grand Warden': 65,
+    'Royal Champion': 40
+  },
+  16: {
+    'Barbarian King': 95,
+    'Archer Queen': 95,
+    'Minion Prince': 80,
+    'Grand Warden': 70,
+    'Royal Champion': 45
+  },
+  17: {
+    'Barbarian King': 100,
+    'Archer Queen': 100,
+    'Minion Prince': 90,
+    'Grand Warden': 75,
+    'Royal Champion': 50
+  },
+  18: {
+    'Barbarian King': 105,
+    'Archer Queen': 105,
+    'Minion Prince': 95,
+    'Grand Warden': 80,
+    'Royal Champion': 55
+  }
+};
+
+// Emojis for Town Hall levels
+const TOWNHALL_EMOJIS: Record<number, string> = {
+  1: '🏠',
+  2: '🏘️',
+  3: '🏛️',
+  4: '🏰',
+  5: '🏯',
+  6: '🏰',
+  7: '🏰',
+  8: '🏰',
+  9: '🏰',
+  10: '🏰',
+  11: '🏰',
+  12: '🏰',
+  13: '🏰',
+  14: '🏰',
+  15: '🏰',
+  16: '🏰',
+  17: '🏰',
+  18: '🏰'
+};
+
+// Emojis for heroes
+const HERO_EMOJIS: Record<string, string> = {
+  'Barbarian King': '👑',
+  'Archer Queen': '🏹',
+  'Grand Warden': '🛡️',
+  'Royal Champion': '⚔️',
+  'Minion Prince': '🦇'
+};
+
+function getHeroMaxLevel(heroName: string, townHallLevel: number | undefined): number | undefined {
+  if (!townHallLevel || townHallLevel < 1 || townHallLevel > 18) return undefined;
+  return HERO_MAX_LEVELS[townHallLevel]?.[heroName];
+}
+
+function getTownHallEmoji(townHallLevel: number | undefined): string {
+  if (!townHallLevel || townHallLevel < 1 || townHallLevel > 18) return '🏰';
+  return TOWNHALL_EMOJIS[townHallLevel] ?? '🏰';
+}
+
+function getHeroEmoji(heroName: string): string {
+  return HERO_EMOJIS[heroName] ?? '⚔️';
+}
 
 function formatCocTime(input?: string): string | undefined {
   if (!input) return undefined;
@@ -67,7 +187,17 @@ const command: ChatInputCommand = {
   data: new SlashCommandBuilder()
     .setName('recruit')
     .setDescription('Look up a Clash of Clans player by tag')
-    .addStringOption((opt) => opt.setName('player_tag').setDescription('Player tag, e.g. #ABC123').setRequired(true)),
+    .addStringOption((opt) => opt.setName('player_tag').setDescription('Player tag, e.g. #ABC123').setRequired(true))
+    .addStringOption((opt) =>
+      opt
+        .setName('source')
+        .setDescription('Where this applicant came from')
+        .addChoices(
+          { name: 'Reddit', value: 'reddit' },
+          { name: 'Discord', value: 'discord' },
+          { name: 'Other', value: 'other' }
+        )
+    ),
   async execute(interaction) {
     if (!interaction.inGuild()) {
       await interaction.reply({
@@ -116,12 +246,15 @@ const command: ChatInputCommand = {
     const client = new ClashOfClansClient();
 
     try {
+      const source = interaction.options.getString('source') ?? 'unknown';
       const player = await client.getPlayerByTag(playerTag);
 
-      const threadTitle = `${player.name} (${player.tag})`;
+      const thValue = typeof player.townHallLevel === 'number' && player.townHallLevel > 0 ? player.townHallLevel : '?';
+      const threadName = `${player.name} TH ${thValue} ${source}.`;
+      const embedTitle = `${player.name} (${player.tag})`;
 
       // Reply in-channel, then start a thread from that reply message.
-      await interaction.editReply({ content: `Creating thread for \`${threadTitle}\`...` });
+      await interaction.editReply({ content: `Creating thread for \`${threadName}\`...` });
       const replyMessage = await interaction.fetchReply();
 
       let thread: AnyThreadChannel | null = null;
@@ -131,38 +264,49 @@ const command: ChatInputCommand = {
         thread = replyMessage.thread;
       } else {
         thread = await replyMessage.startThread({
-          name: threadTitle.slice(0, 100),
+          name: threadName.slice(0, 100),
           autoArchiveDuration: ThreadAutoArchiveDuration.OneDay
         });
       }
 
       if (thread) {
         const heroes = (player.heroes ?? []).filter((h) => (h?.name ?? '').trim().length > 0);
+        const thLevel = player.townHallLevel;
         const heroesValue =
           heroes.length > 0
             ? heroes
                 .map((h) => {
-                  const max = typeof h.maxLevel === 'number' ? `/${h.maxLevel}` : '';
-                  return `${h.name}: ${h.level}${max}`;
+                  const heroMax = getHeroMaxLevel(h.name, thLevel);
+                  const max = heroMax !== undefined ? `/${heroMax}` : '';
+                  const emoji = getHeroEmoji(h.name);
+                  return `${emoji} ${h.name}: ${h.level}${max}`;
                 })
                 .join('\n')
             : 'Unknown';
 
-        const leagueName = player.league?.name ?? 'Unranked';
+        const leagueName = player.leagueTier?.name ?? player.league?.name ?? 'Unranked';
         const trophies = typeof player.trophies === 'number' ? `${player.trophies} trophies` : 'Unknown trophies';
         const leagueRankValue = `${leagueName} (${trophies})`;
+        const leagueThumbnail = player.leagueTier?.iconUrls?.medium ?? player.leagueTier?.iconUrls?.small ?? undefined;
+
+        const thEmoji = getTownHallEmoji(thLevel);
+        const thValue = thLevel !== undefined ? `${thEmoji} TH${thLevel}` : 'Unknown';
 
         // ---- Build paginated embeds ----
         const overviewEmbed = new EmbedBuilder()
-          .setTitle(threadTitle)
+          .setTitle(embedTitle)
           .setDescription(player.clan ? `Clan: ${player.clan.name} (${player.clan.tag})` : 'Clan: None')
           .addFields(
-            { name: 'Town Hall', value: String(player.townHallLevel ?? 'Unknown'), inline: true },
+            { name: 'Town Hall', value: thValue, inline: true },
             { name: 'Current league rank', value: leagueRankValue, inline: true },
             { name: 'EXP level', value: String(player.expLevel ?? 'Unknown'), inline: true },
             { name: 'Hero levels', value: heroesValue, inline: false }
           )
           .setFooter({ text: 'Page 1/2 • Overview' });
+
+        if (leagueThumbnail) {
+          overviewEmbed.setThumbnail(leagueThumbnail);
+        }
 
         // War page: uses current war + CWL war tags (if available). Regular past-war attacks are not exposed by the official API.
         let warSummaryLines: string[] = [];
@@ -273,7 +417,7 @@ const command: ChatInputCommand = {
         }
 
         const warEmbed = new EmbedBuilder()
-          .setTitle(`${threadTitle} — War performance`)
+          .setTitle(`${embedTitle} — War performance`)
           .setDescription(
             [
               '**Recent attacks (best-effort)**',
@@ -306,11 +450,8 @@ const command: ChatInputCommand = {
 
         const tagNoHash = player.tag.replace('#', '');
         const th = typeof player.townHallLevel === 'number' ? player.townHallLevel : 0;
-        
-        // Get the reply message ID to include in close button for updating the "Thread created" message
-        const replyMessage = await interaction.fetchReply();
         const replyMessageId = replyMessage.id;
-        
+
         const acceptBtn = new ButtonBuilder()
           .setCustomId(`recruit:accept:${th}:${tagNoHash}`)
           .setStyle(ButtonStyle.Success)
