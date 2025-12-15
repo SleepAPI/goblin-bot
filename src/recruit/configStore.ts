@@ -4,6 +4,8 @@ import path from 'node:path';
 type RecruitGuildConfig = {
   // Town Hall => role IDs
   thRoleIds: Record<string, string[]>;
+  // Roles allowed to run /recruit (Family Leader role always allowed separately)
+  allowedRecruitRoleIds?: string[];
 };
 
 type RecruitConfigFile = {
@@ -70,14 +72,16 @@ export async function setRecruitRoleIdsForTownHall(guildId: string, th: number, 
 
   const cleaned = normalizeRoleIds(roleIds);
   const cfg = await load();
+  const prevGuild = cfg.guilds[guildId] ?? { thRoleIds: {} };
 
   const next: RecruitConfigFile = {
     ...cfg,
     guilds: {
       ...cfg.guilds,
       [guildId]: {
+        ...prevGuild,
         thRoleIds: {
-          ...(cfg.guilds[guildId]?.thRoleIds ?? {}),
+          ...(prevGuild.thRoleIds ?? {}),
           [String(th)]: cleaned
         }
       }
@@ -103,4 +107,40 @@ export async function getRecruitRoleMappingSummary(guildId: string): Promise<str
   }
 
   return lines.length > 0 ? lines.join('\n') : '_No leader roles configured yet._';
+}
+
+export async function getRecruitAllowedRoleIds(guildId: string): Promise<string[]> {
+  const cfg = await load();
+  const guild = cfg.guilds[guildId];
+  return normalizeRoleIds(guild?.allowedRecruitRoleIds ?? []);
+}
+
+export async function setRecruitAllowedRoleIds(guildId: string, roleIds: string[]): Promise<void> {
+  const cleaned = normalizeRoleIds(roleIds);
+  const cfg = await load();
+  const prevGuild = cfg.guilds[guildId] ?? { thRoleIds: {} };
+
+  const next: RecruitConfigFile = {
+    ...cfg,
+    guilds: {
+      ...cfg.guilds,
+      [guildId]: {
+        ...prevGuild,
+        thRoleIds: prevGuild.thRoleIds ?? {},
+        allowedRecruitRoleIds: cleaned
+      }
+    }
+  };
+
+  cached = next;
+  // Serialize writes to avoid corrupting the file.
+  writeChain = writeChain.then(() => save(next));
+  await writeChain;
+}
+
+export async function getRecruitAllowedRoleSummary(guildId: string): Promise<string> {
+  const ids = await getRecruitAllowedRoleIds(guildId);
+  return ids.length > 0
+    ? ids.map((id) => `<@&${id}>`).join(' ')
+    : '_No additional roles configured (only Family Leaders can use /recruit)._';
 }

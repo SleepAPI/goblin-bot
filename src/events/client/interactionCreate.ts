@@ -2,6 +2,7 @@ import type { ClientEvent } from '@/events/types';
 import { logger } from '@/utils/logger';
 import { getChatInputCommandMap } from '@/bot/state';
 import { handleRecruitComponentInteraction } from '@/recruit/handleRecruitComponentInteraction';
+import { handleFamilySettingsComponentInteraction } from '@/family/handleFamilySettingsComponentInteraction';
 import { MessageFlags } from 'discord.js';
 
 const event: ClientEvent<'interactionCreate'> = {
@@ -18,6 +19,25 @@ const event: ClientEvent<'interactionCreate'> = {
     // Handle /recruit buttons/selects (Accept/Close) globally so they keep working
     // even after the short-lived per-message collectors expire.
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu()) {
+      try {
+        const handled = await handleFamilySettingsComponentInteraction(interaction);
+        if (handled) return;
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, 'Family settings component interaction failed');
+
+        const payload = {
+          content: 'Something went wrong while handling that settings menu.',
+          flags: MessageFlags.Ephemeral
+        } as const;
+
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp(payload);
+        } else {
+          await interaction.reply(payload);
+        }
+        return;
+      }
+
       try {
         const handled = await handleRecruitComponentInteraction(interaction);
         if (handled) return;

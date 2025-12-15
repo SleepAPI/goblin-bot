@@ -5,6 +5,7 @@ describe('loadChatInputCommands', () => {
   it('loads built-in chat input commands', () => {
     const commands = loadChatInputCommands();
     const names = commands.map((c) => c.data.name);
+    expect(names).toContain('family-settings');
     expect(names).toContain('ping');
     expect(names).toContain('recruit');
   });

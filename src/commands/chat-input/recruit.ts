@@ -11,6 +11,9 @@ import {
 import type { ChatInputCommand } from '@/commands/types';
 import { ClashOfClansClient, isValidPlayerTag, type CocWarMember } from '@/integrations/clashOfClans/client';
 import { getInstanceLabel } from '@/utils/instance';
+import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
+import { getRoleIdsFromMember } from '@/utils/discordRoles';
+import { getRecruitAllowedRoleIds } from '@/recruit/configStore';
 
 function formatCocTime(input?: string): string | undefined {
   if (!input) return undefined;
@@ -66,6 +69,39 @@ const command: ChatInputCommand = {
     .setDescription('Look up a Clash of Clans player by tag')
     .addStringOption((opt) => opt.setName('player_tag').setDescription('Player tag, e.g. #ABC123').setRequired(true)),
   async execute(interaction) {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only create threads inside a server channel.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    const leaderRole =
+      interaction.guild.roles.cache.get(FAMILY_LEADER_ROLE_ID) ??
+      (await interaction.guild.roles.fetch(FAMILY_LEADER_ROLE_ID).catch(() => null));
+
+    if (!leaderRole) {
+      await interaction.reply({
+        content: `The Family Leader role (<@&${FAMILY_LEADER_ROLE_ID}>) is missing in this server. Create it to use this command.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    const memberRoleIds = getRoleIdsFromMember(interaction.member);
+    const allowedIds = await getRecruitAllowedRoleIds(interaction.guildId);
+    const hasLeaderRole = memberRoleIds.has(FAMILY_LEADER_ROLE_ID);
+    const hasAllowedRole = allowedIds.some((id) => memberRoleIds.has(id));
+
+    if (!hasLeaderRole && !hasAllowedRole) {
+      await interaction.reply({
+        content: 'Only Family Leaders or configured roles can use this command.',
+        ephemeral: true
+      });
+      return;
+    }
+
     await interaction.deferReply();
 
     const playerTag = interaction.options.getString('player_tag', true);
@@ -81,11 +117,6 @@ const command: ChatInputCommand = {
 
     try {
       const player = await client.getPlayerByTag(playerTag);
-
-      if (!interaction.inGuild()) {
-        await interaction.editReply('This command can only create threads inside a server channel.');
-        return;
-      }
 
       const threadTitle = `${player.name} (${player.tag})`;
 
@@ -278,7 +309,7 @@ const command: ChatInputCommand = {
         const acceptBtn = new ButtonBuilder()
           .setCustomId(`recruit:accept:${th}:${tagNoHash}`)
           .setStyle(ButtonStyle.Success)
-          .setLabel('Accept')
+          .setLabel('Ping Leaders')
           .setDisabled(th <= 0);
         const settingsBtn = new ButtonBuilder()
           .setCustomId(`recruit:settings:${th}:${tagNoHash}`)
