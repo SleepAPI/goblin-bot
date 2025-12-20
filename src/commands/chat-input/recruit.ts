@@ -85,12 +85,19 @@ const command: ChatInputCommand = {
       const thread = await ensureRecruitThreadFromMessage(replyMessage, threadName);
 
       if (thread) {
+        const summaryParts = [
+          interaction.guild ? `from ${interaction.guild.name}` : undefined,
+          `Requested via /recruit by ${interaction.user.tag}`
+        ].filter(Boolean);
+        const sourceSummary = summaryParts.join(' • ') || undefined;
+
         await populateRecruitThread({
           thread,
           player,
           client,
           customBaseId: `recruit:${interaction.id}`,
-          replyMessageId: replyMessage.id
+          replyMessageId: replyMessage.id,
+          originalMessageSummary: sourceSummary
         });
         await interaction.editReply({ content: `Thread created: <#${thread.id}>` });
       } else {

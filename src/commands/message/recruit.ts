@@ -1,19 +1,47 @@
 import type { MessageCommand } from '@/commands/types';
 import { ClashOfClansClient, isValidPlayerTag, normalizePlayerTag } from '@/integrations/clashOfClans/client';
 import { findRecruitThreadDestination } from '@/recruit/configStore';
-import { ensureRecruitThreadFromMessage, populateRecruitThread } from '@/recruit/createRecruitThread';
+import { buildRecruitActionRow, ensureRecruitThreadFromMessage } from '@/recruit/createRecruitThread';
 import {
   ApplicationCommandType,
   ApplicationIntegrationType,
   ChannelType,
   ContextMenuCommandBuilder,
+  EmbedBuilder,
   InteractionContextType,
+  type Guild,
   type Message,
   type NewsChannel,
   type TextChannel
 } from 'discord.js';
 
 const TAG_REGEX = /#[0-9A-Z]{3,15}/gi;
+
+const PLACEHOLDER_EMOJIS: Record<string, string> = {
+  th1: '🏠',
+  th2: '🏘️',
+  th3: '🏛️',
+  th4: '🏰',
+  th5: '🏯',
+  th6: '🏰',
+  th7: '🏰',
+  th8: '🏰',
+  th9: '🏰',
+  th10: '🏰',
+  th11: '🏰',
+  th12: '🏰',
+  th13: '🏰',
+  th14: '🏰',
+  th15: '🏰',
+  th16: '🏰',
+  th17: '🏰',
+  th18: '🏰',
+  bk: '👑',
+  aq: '🏹',
+  gw: '🛡️',
+  rc: '⚔️',
+  mp: '🦇'
+};
 
 function extractPlayerTag(message: Message): string | undefined {
   const sources: string[] = [];
@@ -42,14 +70,120 @@ function extractPlayerTag(message: Message): string | undefined {
   return undefined;
 }
 
-function buildSourceSummary(message: Message, invokedBy: string): string {
-  const lines = [
-    `Recruit extracted by ${invokedBy}`,
-    message.guild ? `from ${message.guild.name}` : undefined,
-    message.url ? `Original message: ${message.url}` : undefined
-  ].filter(Boolean);
+function sanitizeThreadName(input: string | undefined): string {
+  if (!input) return '';
+  return input.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+}
 
-  return lines.join(' • ');
+type ForwardedPayload = {
+  content?: string;
+  embeds?: ReturnType<EmbedBuilder['toJSON']>[];
+  files?: { attachment: string; name: string }[];
+};
+
+async function buildEmojiLookup(guild?: Guild | null): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!guild) return map;
+  if (guild.emojis.cache.size === 0) {
+    await guild.emojis.fetch().catch(() => null);
+  }
+  for (const emoji of guild.emojis.cache.values()) {
+    const name = emoji.name?.toLowerCase();
+    if (!name) continue;
+    map.set(name, emoji.toString());
+  }
+  return map;
+}
+
+function replacePlaceholderEmojis(text: string | null | undefined, emojiMap: Map<string, string>): string | undefined {
+  if (!text) return text ?? undefined;
+
+  // Regex breakdown:
+  // 1. <a?:([a-zA-Z0-9_]+):[0-9]+>  -> Matches full custom emojis (static or animated), capturing the name in Group 1
+  // 2. |                            -> OR
+  // 3. :([a-zA-Z0-9_]+):            -> Matches shortcodes, capturing the name in Group 2
+  return text.replace(/<a?:([a-zA-Z0-9_]+):[0-9]+>|:([a-zA-Z0-9_]+):/gi, (match, nameInTag, nameInShortcode) => {
+    // Get the name from whichever group matched
+    const name = nameInTag || nameInShortcode;
+    if (!name) return match;
+
+    const key = name.toLowerCase();
+    const custom = emojiMap.get(key);
+
+    // If we have a matching custom emoji in the destination guild, use it.
+    // This replaces the WHOLE match (including brackets if it was a tag), fixing the nesting issue.
+    if (custom) return custom;
+
+    // Check fallbacks
+    const fallback = PLACEHOLDER_EMOJIS[key];
+
+    // If we have a fallback, use it. Otherwise, leave the original text exactly as it was.
+    return fallback ?? match;
+  });
+}
+
+async function buildForwardedMessagePayload(message: Message, guild?: Guild | null): Promise<ForwardedPayload | null> {
+  const emojiMap = await buildEmojiLookup(guild);
+  const headerText = message.url
+    ? `Forwarded message from ${message.url}`
+    : message.author
+      ? `Forwarded message from ${message.author.tag}`
+      : 'Forwarded message';
+  const header = replacePlaceholderEmojis(headerText, emojiMap);
+  const body = replacePlaceholderEmojis(message.content?.trim(), emojiMap);
+  const content = [header, body].filter(Boolean).join('\n\n');
+
+  const embeds =
+    message.embeds.length > 0
+      ? message.embeds.map((embed) => {
+          const cloned = EmbedBuilder.from(embed);
+          const title = replacePlaceholderEmojis(cloned.data.title, emojiMap);
+          if (title) cloned.setTitle(title);
+          const description = replacePlaceholderEmojis(cloned.data.description, emojiMap);
+          if (description) cloned.setDescription(description);
+          if (cloned.data.footer?.text) {
+            const footerText = replacePlaceholderEmojis(cloned.data.footer.text, emojiMap) ?? cloned.data.footer.text;
+            if (footerText) {
+              cloned.setFooter({
+                text: footerText,
+                iconURL: cloned.data.footer.icon_url ?? undefined
+              });
+            }
+          }
+          if (cloned.data.author?.name) {
+            const authorName = replacePlaceholderEmojis(cloned.data.author.name, emojiMap) ?? cloned.data.author.name;
+            if (authorName) {
+              cloned.setAuthor({
+                name: authorName,
+                url: cloned.data.author.url ?? undefined,
+                iconURL: cloned.data.author.icon_url ?? undefined
+              });
+            }
+          }
+          if (cloned.data.fields) {
+            const fields = cloned.data.fields.map((field) => ({
+              name: replacePlaceholderEmojis(field.name, emojiMap) ?? field.name,
+              value: replacePlaceholderEmojis(field.value, emojiMap) ?? field.value,
+              inline: field.inline
+            }));
+            cloned.setFields(fields);
+          }
+          return cloned.toJSON();
+        })
+      : undefined;
+  const files =
+    message.attachments.size > 0
+      ? Array.from(message.attachments.values()).map((attachment) => ({
+          attachment: attachment.url,
+          name: attachment.name ?? `attachment-${attachment.id}`
+        }))
+      : undefined;
+
+  if (!content && (!embeds || embeds.length === 0) && (!files || files.length === 0)) {
+    return null;
+  }
+
+  return { content: content || undefined, embeds, files };
 }
 
 async function resolveDestinationChannel(client: Message['client']): Promise<{
@@ -71,7 +205,7 @@ async function resolveDestinationChannel(client: Message['client']): Promise<{
 
 const command: MessageCommand = {
   data: new ContextMenuCommandBuilder()
-    .setName('recruit')
+    .setName('Recruit this goblin')
     .setType(ApplicationCommandType.Message)
     .setIntegrationTypes(ApplicationIntegrationType.UserInstall)
     .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel),
@@ -97,7 +231,8 @@ const command: MessageCommand = {
     try {
       const player = await cocClient.getPlayerByTag(playerTag);
       const thValue = typeof player.townHallLevel === 'number' && player.townHallLevel > 0 ? player.townHallLevel : '?';
-      const threadName = `${player.name} TH ${thValue} from message`;
+      const safePlayerName = sanitizeThreadName(player.name) || player.tag.replace('#', '');
+      const threadName = `${safePlayerName} TH ${thValue} (Discord)`;
 
       const statusMessage = await destination.channel.send({
         content: `Creating recruit thread for ${player.name} (tag ${player.tag}) requested by ${interaction.user}.`
@@ -110,18 +245,17 @@ const command: MessageCommand = {
         return;
       }
 
-      await populateRecruitThread({
-        thread,
-        player,
-        client: cocClient,
-        customBaseId: `recruit:${interaction.id}`,
-        replyMessageId: statusMessage.id
-      });
+      const actionRow = buildRecruitActionRow({ player, replyMessageId: statusMessage.id });
+      const forwardedPayload = await buildForwardedMessagePayload(interaction.targetMessage, thread.guild);
+      const payload: ForwardedPayload = forwardedPayload ?? {
+        content: `Forwarded message unavailable. Use the original link for context: ${interaction.targetMessage.url}`
+      };
 
-      const summary = buildSourceSummary(interaction.targetMessage, interaction.user.tag);
-      if (summary) {
-        await thread.send(summary);
-      }
+      await thread.send({
+        ...payload,
+        components: [actionRow],
+        allowedMentions: { parse: [] }
+      });
 
       await statusMessage.edit(`Recruit thread created by ${interaction.user}: <#${thread.id}>`);
       await interaction.editReply(`Thread created in ${destination.guildName}: <#${thread.id}>`);

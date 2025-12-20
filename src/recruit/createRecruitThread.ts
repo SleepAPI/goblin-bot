@@ -132,6 +132,14 @@ function getHeroEmoji(heroName: string): string {
   return HERO_EMOJIS[heroName] ?? '⚔️';
 }
 
+function buildClanLine(clan: CocPlayer['clan'] | undefined): string {
+  if (!clan?.name) return 'Clan: None';
+  const tagNoHash = clan.tag?.replace(/^#/, '');
+  if (!tagNoHash) return `Clan: ${clan.name}`;
+  const url = `https://link.clashofclans.com/en?action=OpenClanProfile&tag=${encodeURIComponent(tagNoHash)}`;
+  return `Clan: [${clan.name}](<${url}>)`;
+}
+
 function formatCocTime(input?: string): string | undefined {
   if (!input) return undefined;
   const iso = input.includes('.') ? input : input.replace(/(\.\d{3}Z)?$/, '.000Z');
@@ -207,14 +215,47 @@ type PopulateRecruitThreadOptions = {
   client: ClashOfClansClient;
   customBaseId: string;
   replyMessageId: string;
+  originalMessageSummary?: string;
+  originalMessageNote?: string;
 };
+
+export function buildRecruitActionRow({
+  player,
+  replyMessageId
+}: {
+  player: CocPlayer;
+  replyMessageId: string;
+}): ActionRowBuilder<ButtonBuilder> {
+  const tagNoHash = player.tag.replace('#', '');
+  const th = typeof player.townHallLevel === 'number' ? player.townHallLevel : 0;
+
+  const acceptBtn = new ButtonBuilder()
+    .setCustomId(`recruit:accept:${th}:${tagNoHash}`)
+    .setStyle(ButtonStyle.Success)
+    .setLabel('Ping Leaders')
+    .setDisabled(th <= 0);
+  const settingsBtn = new ButtonBuilder()
+    .setCustomId(`recruit:settings:${th}:${tagNoHash}`)
+    .setStyle(ButtonStyle.Secondary)
+    .setEmoji('⚙️')
+    .setLabel('Settings')
+    .setDisabled(th <= 0);
+  const closeBtn = new ButtonBuilder()
+    .setCustomId(`recruit:close:${tagNoHash}:${replyMessageId}`)
+    .setStyle(ButtonStyle.Danger)
+    .setLabel('Close');
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(acceptBtn, settingsBtn, closeBtn);
+}
 
 export async function populateRecruitThread({
   thread,
   player,
   client,
   customBaseId,
-  replyMessageId
+  replyMessageId,
+  originalMessageSummary,
+  originalMessageNote
 }: PopulateRecruitThreadOptions): Promise<void> {
   const heroes = (player.heroes ?? []).filter((h) => {
     const name = (h?.name ?? '').trim();
@@ -243,11 +284,16 @@ export async function populateRecruitThread({
   const thValue = thLevel !== undefined ? `${thEmoji} TH${thLevel}` : 'Unknown';
 
   const embedTitle = `${player.name} (${player.tag})`;
+  const descriptionLines = [
+    buildClanLine(player.clan),
+    originalMessageSummary ? `Source: ${originalMessageSummary}` : undefined,
+    originalMessageNote
+  ].filter(Boolean);
 
   // ---- Build paginated embeds ----
   const overviewEmbed = new EmbedBuilder()
     .setTitle(embedTitle)
-    .setDescription(player.clan ? `Clan: ${player.clan.name} (${player.clan.tag})` : 'Clan: None')
+    .setDescription(descriptionLines.join('\n'))
     .addFields(
       { name: 'Town Hall', value: thValue, inline: true },
       { name: 'Current league rank', value: leagueRankValue, inline: true },
@@ -397,25 +443,7 @@ export async function populateRecruitThread({
 
   const navRow = new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn);
 
-  const tagNoHash = player.tag.replace('#', '');
-  const th = typeof player.townHallLevel === 'number' ? player.townHallLevel : 0;
-
-  const acceptBtn = new ButtonBuilder()
-    .setCustomId(`recruit:accept:${th}:${tagNoHash}`)
-    .setStyle(ButtonStyle.Success)
-    .setLabel('Ping Leaders')
-    .setDisabled(th <= 0);
-  const settingsBtn = new ButtonBuilder()
-    .setCustomId(`recruit:settings:${th}:${tagNoHash}`)
-    .setStyle(ButtonStyle.Secondary)
-    .setEmoji('⚙️')
-    .setLabel('Settings')
-    .setDisabled(th <= 0);
-  const closeBtn = new ButtonBuilder()
-    .setCustomId(`recruit:close:${tagNoHash}:${replyMessageId}`)
-    .setStyle(ButtonStyle.Danger)
-    .setLabel('Close');
-  const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(acceptBtn, settingsBtn, closeBtn);
+  const actionRow = buildRecruitActionRow({ player, replyMessageId });
 
   const pagedMessage = await thread.send({
     embeds: [pages[pageIndex]],
