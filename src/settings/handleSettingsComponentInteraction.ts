@@ -1,19 +1,94 @@
 import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
-import { setRecruitAllowedRoleIds, setRecruitThreadChannelId } from '@/recruit/configStore';
+import type { RecruitDmTemplateConfig } from '@/recruit/configStore';
+import {
+  getRecruitDmTemplates,
+  setRecruitAllowedRoleIds,
+  setRecruitDmTemplates,
+  setRecruitThreadChannelId
+} from '@/recruit/configStore';
 import { isSettingsAdmin } from '@/settings/permissions';
-import { buildRecruitChannelView, buildRecruitRolesView, buildSettingsMenuView } from '@/settings/views';
+import {
+  buildRecruitChannelView,
+  buildRecruitDmTemplatesView,
+  buildRecruitRolesView,
+  buildSettingsMenuView
+} from '@/settings/views';
 import type {
   ButtonInteraction,
   ChannelSelectMenuInteraction,
   RoleSelectMenuInteraction,
   StringSelectMenuInteraction
 } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  type ModalSubmitInteraction
+} from 'discord.js';
+import { randomBytes } from 'node:crypto';
 
 type SettingsComponentInteraction =
   | RoleSelectMenuInteraction
   | ChannelSelectMenuInteraction
   | ButtonInteraction
   | StringSelectMenuInteraction;
+
+const TEMPLATE_NAME_INPUT_ID = 'settings_dm_template_name';
+const TEMPLATE_CONTENT_INPUT_ID = 'settings_dm_template_content';
+const TEMPLATE_PLACEHOLDER_HINT_ID = 'settings_dm_template_hint';
+const TEMPLATE_PLACEHOLDER_TEXT =
+  '{player_name}, {player_tag}, {player_townhall}, {recruiter_name}, {guild_name}, {thread_url}, {community_invite_url}, {original_message_url}';
+
+function generateTemplateId(): string {
+  return randomBytes(5).toString('hex');
+}
+
+function buildTemplateModal(mode: 'create' | 'edit', template?: RecruitDmTemplateConfig): ModalBuilder {
+  const modal = new ModalBuilder()
+    .setCustomId(
+      mode === 'create' ? 'settings:dm_template_modal:create' : `settings:dm_template_modal:edit:${template?.id}`
+    )
+    .setTitle(mode === 'create' ? 'Add DM template' : `Edit "${template?.name ?? 'template'}"`);
+
+  const nameInput = new TextInputBuilder()
+    .setCustomId(TEMPLATE_NAME_INPUT_ID)
+    .setLabel('Template name')
+    .setStyle(TextInputStyle.Short)
+    .setMinLength(3)
+    .setMaxLength(100)
+    .setRequired(true);
+
+  const contentInput = new TextInputBuilder()
+    .setCustomId(TEMPLATE_CONTENT_INPUT_ID)
+    .setLabel('Message content')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMinLength(10)
+    .setMaxLength(1800);
+
+  if (template) {
+    nameInput.setValue(template.name.slice(0, 100));
+    contentInput.setValue(template.content.slice(0, 1800));
+  }
+
+  const placeholderInfo = new TextInputBuilder()
+    .setCustomId(TEMPLATE_PLACEHOLDER_HINT_ID)
+    .setLabel('Available placeholders (read-only)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setValue(TEMPLATE_PLACEHOLDER_TEXT)
+    .setRequired(false)
+    .setMinLength(0)
+    .setMaxLength(TEMPLATE_PLACEHOLDER_TEXT.length);
+
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(placeholderInfo),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(contentInput)
+  );
+
+  return modal;
+}
 
 export async function handleSettingsComponentInteraction(interaction: SettingsComponentInteraction): Promise<boolean> {
   if (!interaction.customId.startsWith('settings:')) return false;
@@ -49,7 +124,9 @@ export async function handleSettingsComponentInteraction(interaction: SettingsCo
         ? await buildRecruitRolesView(guildId, leaderRoleId)
         : selected === 'recruit_channel'
           ? await buildRecruitChannelView(guildId)
-          : await buildSettingsMenuView(guildId, leaderRoleId);
+          : selected === 'dm_templates'
+            ? await buildRecruitDmTemplatesView(guildId)
+            : await buildSettingsMenuView(guildId, leaderRoleId);
     await interaction.update(view);
     return true;
   }
@@ -57,6 +134,58 @@ export async function handleSettingsComponentInteraction(interaction: SettingsCo
   if (action === 'back' && interaction.isButton()) {
     const view = await buildSettingsMenuView(guildId, leaderRoleId);
     await interaction.update(view);
+    return true;
+  }
+
+  if (action === 'dm_templates_add' && interaction.isButton()) {
+    const modal = buildTemplateModal('create');
+    await interaction.showModal(modal);
+    return true;
+  }
+
+  if (action === 'dm_templates_edit' && interaction.isStringSelectMenu()) {
+    const templateId = interaction.values?.[0];
+    if (!templateId) {
+      await interaction.reply({ content: 'Select a template first.', ephemeral: true });
+      return true;
+    }
+    const templates = await getRecruitDmTemplates(guildId);
+    const template = templates.find((entry) => entry.id === templateId);
+    if (!template) {
+      await interaction.reply({ content: 'That template is no longer available.', ephemeral: true });
+      return true;
+    }
+
+    await interaction.showModal(buildTemplateModal('edit', template));
+    return true;
+  }
+
+  if (action === 'dm_templates_delete' && interaction.isStringSelectMenu()) {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
+
+    try {
+      const templateId = interaction.values?.[0];
+      if (!templateId) {
+        await interaction.followUp({ content: 'Select a template first.', ephemeral: true });
+        return true;
+      }
+
+      const templates = await getRecruitDmTemplates(guildId);
+      const next = templates.filter((entry) => entry.id !== templateId);
+      if (next.length === templates.length) {
+        await interaction.followUp({ content: 'That template was already removed.', ephemeral: true });
+        return true;
+      }
+
+      await setRecruitDmTemplates(guildId, next);
+      const view = await buildRecruitDmTemplatesView(guildId);
+      await interaction.editReply(view);
+      await interaction.followUp({ content: 'Recruit DM template deleted.', ephemeral: true });
+    } catch (err) {
+      await reportSettingsError(interaction, 'Failed to delete DM template.', err);
+    }
     return true;
   }
 
@@ -98,8 +227,79 @@ export async function handleSettingsComponentInteraction(interaction: SettingsCo
   return false;
 }
 
+export async function handleSettingsModalInteraction(interaction: ModalSubmitInteraction): Promise<boolean> {
+  if (!interaction.customId.startsWith('settings:')) return false;
+
+  if (!interaction.inGuild() || !interaction.guildId) {
+    await interaction.reply({ content: 'Settings can only be used inside a server.', ephemeral: true });
+    return true;
+  }
+
+  if (!isSettingsAdmin(interaction.user.id)) {
+    await interaction.reply({
+      content: 'Only the bot maintainer can change settings right now.',
+      ephemeral: true
+    });
+    return true;
+  }
+
+  const [, action, mode, templateId] = interaction.customId.split(':');
+  if (action !== 'dm_template_modal') return false;
+
+  const guildId = interaction.guildId;
+  const name = interaction.fields.getTextInputValue(TEMPLATE_NAME_INPUT_ID)?.trim();
+  const content = interaction.fields.getTextInputValue(TEMPLATE_CONTENT_INPUT_ID)?.trim();
+
+  if (!name || !content) {
+    await interaction.reply({ content: 'Both a name and message are required.', ephemeral: true });
+    return true;
+  }
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const current = await getRecruitDmTemplates(guildId);
+    const templates = [...current];
+
+    if (mode === 'create') {
+      let id = generateTemplateId();
+      const taken = new Set(templates.map((entry) => entry.id));
+      while (taken.has(id)) {
+        id = generateTemplateId();
+      }
+      templates.push({ id, name, content });
+    } else if (mode === 'edit' && templateId) {
+      const index = templates.findIndex((entry) => entry.id === templateId);
+      if (index === -1) {
+        await interaction.reply({ content: 'That template no longer exists.', ephemeral: true });
+        return true;
+      }
+      templates[index] = { id: templateId, name, content };
+    } else {
+      await interaction.reply({ content: 'Unknown template action.', ephemeral: true });
+      return true;
+    }
+
+    await setRecruitDmTemplates(guildId, templates);
+    const view = await buildRecruitDmTemplatesView(guildId);
+    await interaction.editReply({
+      content: `✅ Recruit DM template saved.\n\n${view.content}`,
+      components: view.components
+    });
+  } catch (err) {
+    await reportSettingsError(interaction, 'Failed to save DM template.', err);
+  }
+
+  return true;
+}
+
 async function reportSettingsError(
-  interaction: RoleSelectMenuInteraction | ChannelSelectMenuInteraction,
+  interaction:
+    | RoleSelectMenuInteraction
+    | ChannelSelectMenuInteraction
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | ModalSubmitInteraction,
   message: string,
   err: unknown
 ) {

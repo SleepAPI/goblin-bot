@@ -1,7 +1,22 @@
 import type { MessageCommand } from '@/commands/types';
 import { ClashOfClansClient, isValidPlayerTag, normalizePlayerTag } from '@/integrations/clashOfClans/client';
-import { findRecruitThreadDestination } from '@/recruit/configStore';
+import {
+  findRecruitThreadDestination,
+  getRecruitClans,
+  getRecruitCommunityInviteUrl,
+  getRecruitDmTemplates
+} from '@/recruit/configStore';
 import { buildRecruitActionRow, ensureRecruitThreadFromMessage } from '@/recruit/createRecruitThread';
+import { buildRecruiterDmComponents } from '@/recruit/dmCoordinator';
+import { createRecruitDmSession, updateRecruitDmSession } from '@/recruit/dmSessionStore';
+import {
+  clearOpenApplicantThreadByThreadId,
+  getOpenApplicantThread,
+  registerOpenApplicantThread,
+  releaseApplicantLock,
+  tryLockApplicant
+} from '@/recruit/openApplicantStore';
+import type { ActionRowBuilder, MessageActionRowComponentBuilder } from 'discord.js';
 import {
   ApplicationCommandType,
   ApplicationIntegrationType,
@@ -12,10 +27,12 @@ import {
   type Guild,
   type Message,
   type NewsChannel,
-  type TextChannel
+  type TextChannel,
+  type User
 } from 'discord.js';
 
 const TAG_REGEX = /#[0-9A-Z]{3,15}/gi;
+const USER_MENTION_REGEX = /<@!?(\d{17,21})>/g;
 
 const PLACEHOLDER_EMOJIS: Record<string, string> = {
   th1: '🏠',
@@ -73,6 +90,46 @@ function extractPlayerTag(message: Message): string | undefined {
 function sanitizeThreadName(input: string | undefined): string {
   if (!input) return '';
   return input.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+}
+
+function collectMessageTextSources(message: Message): string[] {
+  const sources: string[] = [];
+  if (message.content) sources.push(message.content);
+
+  for (const embed of message.embeds ?? []) {
+    if (embed.title) sources.push(embed.title);
+    if (embed.description) sources.push(embed.description);
+    if (embed.author?.name) sources.push(embed.author.name);
+    if (embed.footer?.text) sources.push(embed.footer.text);
+    for (const field of embed.fields ?? []) {
+      if (field.name) sources.push(field.name);
+      if (field.value) sources.push(field.value);
+    }
+  }
+
+  return sources;
+}
+
+async function resolveFirstMentionedUser(message: Message): Promise<User | null> {
+  const sources = collectMessageTextSources(message);
+  for (const text of sources) {
+    USER_MENTION_REGEX.lastIndex = 0;
+    const match = USER_MENTION_REGEX.exec(text);
+    if (!match?.[1]) continue;
+    const targetId = match[1];
+    const user = await message.client.users.fetch(targetId).catch(() => null);
+    if (user) {
+      return user;
+    }
+  }
+  return null;
+}
+
+async function resolveApplicantUser(message: Message): Promise<User | null> {
+  if (!message.author.bot) return message.author;
+  if (message.interactionMetadata?.user) return message.interactionMetadata.user;
+  if (message.interaction?.user) return message.interaction.user ?? null;
+  return await resolveFirstMentionedUser(message);
 }
 
 type ForwardedPayload = {
@@ -187,6 +244,7 @@ async function buildForwardedMessagePayload(message: Message, guild?: Guild | nu
 }
 
 async function resolveDestinationChannel(client: Message['client']): Promise<{
+  guildId: string;
   guildName: string;
   channel: TextChannel | NewsChannel;
 } | null> {
@@ -200,7 +258,7 @@ async function resolveDestinationChannel(client: Message['client']): Promise<{
   if (!channel || !channel.isTextBased()) return null;
   if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) return null;
 
-  return { guildName: guild.name, channel: channel as TextChannel | NewsChannel };
+  return { guildId: destination.guildId, guildName: guild.name, channel: channel as TextChannel | NewsChannel };
 }
 
 const command: MessageCommand = {
@@ -227,12 +285,38 @@ const command: MessageCommand = {
     }
 
     const cocClient = new ClashOfClansClient();
+    let pendingApplicantLockId: string | null = null;
 
     try {
       const player = await cocClient.getPlayerByTag(playerTag);
       const thValue = typeof player.townHallLevel === 'number' && player.townHallLevel > 0 ? player.townHallLevel : '?';
       const safePlayerName = sanitizeThreadName(player.name) || player.tag.replace('#', '');
       const threadName = `${safePlayerName} TH ${thValue} (Discord)`;
+      const applicantUser = await resolveApplicantUser(interaction.targetMessage);
+
+      if (applicantUser && !applicantUser.bot && applicantUser.id !== interaction.user.id) {
+        const existing = getOpenApplicantThread(applicantUser.id);
+        if (existing) {
+          const existingChannel = await interaction.client.channels.fetch(existing.threadId).catch(() => null);
+          const isStillOpen = existingChannel?.isThread() && !existingChannel.archived;
+          if (isStillOpen) {
+            await interaction.editReply(
+              `That applicant already has an open recruit thread: <#${existing.threadId}>.\n` +
+                'Close the existing thread before starting another.'
+            );
+            return;
+          }
+
+          clearOpenApplicantThreadByThreadId(existing.threadId);
+        }
+        if (!tryLockApplicant(applicantUser.id)) {
+          await interaction.editReply(
+            'Another recruiter is already creating a recruit thread for this applicant. Please try again shortly.'
+          );
+          return;
+        }
+        pendingApplicantLockId = applicantUser.id;
+      }
 
       const statusMessage = await destination.channel.send({
         content: `Creating recruit thread for ${player.name} (tag ${player.tag}) requested by ${interaction.user}.`
@@ -257,13 +341,81 @@ const command: MessageCommand = {
         allowedMentions: { parse: [] }
       });
 
+      const baseReply = `Thread created in ${destination.guildName}: <#${thread.id}>`;
+      let replyContent = baseReply;
+      let dmComponents: ActionRowBuilder<MessageActionRowComponentBuilder>[] | undefined;
+
+      if (!applicantUser) {
+        replyContent = `${baseReply}\nCould not determine who to DM from that message.`;
+      } else if (applicantUser.bot) {
+        replyContent = `${baseReply}\nSkipped the DM because the detected applicant is a bot.`;
+      } else if (applicantUser.id === interaction.user.id) {
+        replyContent = `${baseReply}\nYou invoked this command on your own message, so no DM was opened.`;
+      } else {
+        if (pendingApplicantLockId === applicantUser.id) {
+          registerOpenApplicantThread({
+            applicantId: applicantUser.id,
+            applicantTag: applicantUser.tag,
+            threadId: thread.id,
+            threadUrl: `https://discord.com/channels/${thread.guildId ?? '@me'}/${thread.id}`,
+            playerTag: player.tag,
+            guildId: thread.guildId ?? destination.guildId
+          });
+          pendingApplicantLockId = null;
+        }
+
+        const [dmTemplates, clanConfigs, communityInviteUrl] = await Promise.all([
+          getRecruitDmTemplates(destination.guildId),
+          getRecruitClans(destination.guildId),
+          getRecruitCommunityInviteUrl(destination.guildId)
+        ]);
+
+        const session = createRecruitDmSession({
+          guildId: destination.guildId,
+          threadId: thread.id,
+          threadUrl: `https://discord.com/channels/${thread.guildId ?? '@me'}/${thread.id}`,
+          homeGuildName: destination.guildName,
+          recruiterId: interaction.user.id,
+          recruiterTag: interaction.user.tag,
+          applicantId: applicantUser.id,
+          applicantTag: applicantUser.tag,
+          applicantDisplayName: applicantUser.username,
+          player: {
+            name: player.name,
+            tag: player.tag,
+            townHallLevel: player.townHallLevel
+          },
+          originalMessageUrl: interaction.targetMessage.url,
+          communityInviteUrl: communityInviteUrl,
+          clans: clanConfigs,
+          templates: dmTemplates,
+          statusMessage: baseReply
+        });
+
+        const recruiterRows = buildRecruiterDmComponents(session);
+        if (recruiterRows.length > 0) {
+          replyContent = `${baseReply}\nSelect a DM template below to copy and DM <@${applicantUser.id}>.`;
+          dmComponents = recruiterRows;
+          updateRecruitDmSession(session.id, { statusMessage: replyContent });
+        } else {
+          replyContent = `${baseReply}\nNo DM templates are configured yet. Update your recruit settings to enable DM outreach.`;
+        }
+      }
+
       await statusMessage.edit(`Recruit thread created by ${interaction.user}: <#${thread.id}>`);
-      await interaction.editReply(`Thread created in ${destination.guildName}: <#${thread.id}>`);
+      await interaction.editReply({
+        content: replyContent,
+        components: dmComponents
+      });
     } catch (err) {
       const { logger } = await import('@/utils/logger');
       logger.error({ err, command: 'message/recruit', playerTag }, 'Failed to create recruit thread from message');
       const msg = err instanceof Error ? err.message : 'Unknown error';
       await interaction.editReply(`Could not create recruit thread: ${msg}`);
+    } finally {
+      if (pendingApplicantLockId) {
+        releaseApplicantLock(pendingApplicantLockId);
+      }
     }
   }
 };

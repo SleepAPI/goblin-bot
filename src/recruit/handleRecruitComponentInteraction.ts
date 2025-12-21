@@ -14,6 +14,7 @@ import {
   getRecruitRoleMappingSummary,
   setRecruitRoleIdsForTownHall
 } from '@/recruit/configStore';
+import { clearOpenApplicantThreadByThreadId } from '@/recruit/openApplicantStore';
 
 type RecruitComponentInteraction =
   | ButtonInteraction
@@ -235,6 +236,7 @@ async function handleClose(interaction: ButtonInteraction, tagNoHash: string, re
     if (interaction.channel?.isThread()) {
       await interaction.channel.setLocked(true, `Closed by ${interaction.user.tag}`);
       await interaction.channel.setArchived(true, `Closed by ${interaction.user.tag}`);
+      clearOpenApplicantThreadByThreadId(interaction.channel.id);
     }
   } catch {
     // ignore

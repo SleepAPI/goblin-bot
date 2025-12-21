@@ -1,6 +1,18 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+export type RecruitClanConfig = {
+  tag: string;
+  name?: string;
+  applicationUrl?: string;
+};
+
+export type RecruitDmTemplateConfig = {
+  id: string;
+  name: string;
+  content: string;
+};
+
 type RecruitGuildConfig = {
   // Town Hall => role IDs
   thRoleIds: Record<string, string[]>;
@@ -8,6 +20,9 @@ type RecruitGuildConfig = {
   allowedRecruitRoleIds?: string[];
   // Channel where message-based recruits create threads
   recruitThreadChannelId?: string;
+  communityInviteUrl?: string;
+  clans?: RecruitClanConfig[];
+  dmTemplates?: RecruitDmTemplateConfig[];
 };
 
 type RecruitConfigFile = {
@@ -19,6 +34,8 @@ const DEFAULT_CONFIG: RecruitConfigFile = {
   version: 1,
   guilds: {}
 };
+
+const DEFAULT_COMMUNITY_INVITE_URL = 'https://discord.gg/fa4hcREvHc';
 
 const CONFIG_PATH = path.resolve(process.cwd(), 'recruit-config.json');
 
@@ -59,6 +76,50 @@ function normalizeRoleIds(roleIds: string[]): string[] {
 function normalizeChannelId(channelId: string | null | undefined): string | undefined {
   const cleaned = typeof channelId === 'string' ? channelId.trim() : '';
   return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function normalizeUrl(url: string | null | undefined): string | undefined {
+  if (typeof url !== 'string') return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeClans(clans: RecruitClanConfig[] | undefined): RecruitClanConfig[] {
+  if (!Array.isArray(clans)) return [];
+  const uniq = new Map<string, RecruitClanConfig>();
+  for (const entry of clans) {
+    if (!entry?.tag) continue;
+    const tag = entry.tag.trim();
+    if (!tag) continue;
+    uniq.set(tag, {
+      tag,
+      name: entry.name?.trim() || undefined,
+      applicationUrl: normalizeUrl(entry.applicationUrl)
+    });
+  }
+  return Array.from(uniq.values());
+}
+
+function normalizeDmTemplates(templates: RecruitDmTemplateConfig[] | undefined): RecruitDmTemplateConfig[] {
+  if (!Array.isArray(templates)) return [];
+  const uniq = new Map<string, RecruitDmTemplateConfig>();
+  for (const template of templates) {
+    if (!template?.id || !template.name || !template.content) continue;
+    const id = template.id.trim();
+    if (!id) continue;
+    uniq.set(id, {
+      id,
+      name: template.name.trim(),
+      content: template.content
+    });
+  }
+  return Array.from(uniq.values());
 }
 
 function assertTownHall(th: number): asserts th is number {
@@ -191,6 +252,53 @@ export async function setRecruitThreadChannelId(guildId: string, channelId: stri
 export async function getRecruitThreadChannelSummary(guildId: string): Promise<string> {
   const channelId = await getRecruitThreadChannelId(guildId);
   return channelId ? `<#${channelId}>` : '_Not configured yet._';
+}
+
+export async function getRecruitCommunityInviteUrl(guildId: string): Promise<string | undefined> {
+  const cfg = await load();
+  const guild = cfg.guilds[guildId];
+  return normalizeUrl(guild?.communityInviteUrl) ?? DEFAULT_COMMUNITY_INVITE_URL;
+}
+
+export async function getRecruitClans(guildId: string): Promise<RecruitClanConfig[]> {
+  const cfg = await load();
+  const guild = cfg.guilds[guildId];
+  return normalizeClans(guild?.clans);
+}
+
+export async function getRecruitDmTemplates(guildId: string): Promise<RecruitDmTemplateConfig[]> {
+  const cfg = await load();
+  const guild = cfg.guilds[guildId];
+  return normalizeDmTemplates(guild?.dmTemplates);
+}
+
+export async function setRecruitDmTemplates(guildId: string, templates: RecruitDmTemplateConfig[]): Promise<void> {
+  const cfg = await load();
+  const prevGuild = cfg.guilds[guildId] ?? { thRoleIds: {} };
+
+  const nextGuild: RecruitGuildConfig = {
+    ...prevGuild,
+    thRoleIds: prevGuild.thRoleIds ?? {}
+  };
+
+  const cleaned = normalizeDmTemplates(templates);
+  if (cleaned.length === 0) {
+    delete nextGuild.dmTemplates;
+  } else {
+    nextGuild.dmTemplates = cleaned;
+  }
+
+  const next: RecruitConfigFile = {
+    ...cfg,
+    guilds: {
+      ...cfg.guilds,
+      [guildId]: nextGuild
+    }
+  };
+
+  cached = next;
+  writeChain = writeChain.then(() => save(next));
+  await writeChain;
 }
 
 export async function findRecruitThreadDestination(): Promise<{ guildId: string; channelId: string } | null> {

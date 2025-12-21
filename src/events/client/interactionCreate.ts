@@ -2,7 +2,12 @@ import type { ClientEvent } from '@/events/types';
 import { logger } from '@/utils/logger';
 import { getChatInputCommandMap, getMessageCommandMap } from '@/bot/state';
 import { handleRecruitComponentInteraction } from '@/recruit/handleRecruitComponentInteraction';
-import { handleSettingsComponentInteraction } from '@/settings/handleSettingsComponentInteraction';
+import { handleRecruiterDmComponentInteraction } from '@/recruit/recruiterDmControls';
+import { handleApplicantDmInteraction } from '@/recruit/applicantDmInteractions';
+import {
+  handleSettingsComponentInteraction,
+  handleSettingsModalInteraction
+} from '@/settings/handleSettingsComponentInteraction';
 import { MessageFlags } from 'discord.js';
 
 const event: ClientEvent<'interactionCreate'> = {
@@ -18,6 +23,32 @@ const event: ClientEvent<'interactionCreate'> = {
 
     // Handle /recruit buttons/selects (Accept/Close) globally so they keep working
     // even after the short-lived per-message collectors expire.
+    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      try {
+        const dmHandled = await handleRecruiterDmComponentInteraction(interaction);
+        if (dmHandled) return;
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, 'Recruit DM interaction failed');
+        await interaction.reply({
+          content: 'Something went wrong while handling that DM control.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      try {
+        const applicantHandled = await handleApplicantDmInteraction(interaction);
+        if (applicantHandled) return;
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, 'Applicant interaction failed');
+        await interaction.reply({
+          content: 'Something went wrong while handling that option.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+    }
+
     if (
       interaction.isButton() ||
       interaction.isStringSelectMenu() ||
@@ -90,6 +121,20 @@ const event: ClientEvent<'interactionCreate'> = {
         }
       }
       return;
+    }
+
+    if (interaction.isModalSubmit()) {
+      try {
+        const handled = await handleSettingsModalInteraction(interaction);
+        if (handled) return;
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, 'Settings modal interaction failed');
+        await interaction.reply({
+          content: 'Something went wrong while saving those settings.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
     }
 
     if (!interaction.isChatInputCommand()) return;

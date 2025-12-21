@@ -1,5 +1,6 @@
 import {
   getRecruitAllowedRoleSummary,
+  getRecruitDmTemplates,
   getRecruitRoleMappingSummary,
   getRecruitThreadChannelSummary
 } from '@/recruit/configStore';
@@ -28,7 +29,12 @@ function buildBackRow() {
 export async function buildSettingsMenuView(guildId: string, leaderRoleId?: string): Promise<SettingsView> {
   const allowedSummary = await getRecruitAllowedRoleSummary(guildId);
   const channelSummary = await getRecruitThreadChannelSummary(guildId);
+  const templates = await getRecruitDmTemplates(guildId);
   const leaderSummary = leaderRoleId ? `<@&${leaderRoleId}>` : '_Leader role not found in this server._';
+  const templateSummary =
+    templates.length > 0
+      ? `${templates.length} template${templates.length === 1 ? '' : 's'}`
+      : '_No templates set yet._';
 
   const select = new StringSelectMenuBuilder()
     .setCustomId('settings:menu_select')
@@ -43,6 +49,11 @@ export async function buildSettingsMenuView(guildId: string, leaderRoleId?: stri
         label: 'Message recruit channel',
         value: 'recruit_channel',
         description: 'Choose the channel for right-click recruit threads'
+      },
+      {
+        label: 'Recruit DM templates',
+        value: 'dm_templates',
+        description: 'Customize the copy recruiters paste into DMs'
       }
     );
 
@@ -51,7 +62,8 @@ export async function buildSettingsMenuView(guildId: string, leaderRoleId?: stri
       `**Settings overview**\n` +
       `- Leader role: ${leaderSummary}\n` +
       `- Additional /recruit roles: ${allowedSummary}\n` +
-      `- Message recruit channel: ${channelSummary}\n\n` +
+      `- Message recruit channel: ${channelSummary}\n` +
+      `- Recruit DM templates: ${templateSummary}\n\n` +
       `Select an option below to configure it.`,
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)]
   };
@@ -95,5 +107,59 @@ export async function buildRecruitChannelView(guildId: string): Promise<Settings
       `- Current destination: ${channelSummary}\n\n` +
       `Right-click recruit commands will create threads in the selected channel.`,
     components: [buildBackRow(), new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(select)]
+  };
+}
+
+export async function buildRecruitDmTemplatesView(guildId: string): Promise<SettingsView> {
+  const templates = await getRecruitDmTemplates(guildId);
+  const hasTemplates = templates.length > 0;
+  const summary = hasTemplates
+    ? templates
+        .slice(0, 25)
+        .map((template, index) => {
+          const preview =
+            template.content.length > 80 ? `${template.content.slice(0, 77)}…` : template.content || 'Empty template';
+          return `${index + 1}. **${template.name}** — ${preview}`;
+        })
+        .join('\n')
+    : '_No DM templates configured yet._';
+
+  const addRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId('settings:dm_templates_add').setLabel('Add template').setStyle(ButtonStyle.Primary)
+  );
+
+  const rows: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [buildBackRow(), addRow];
+
+  if (hasTemplates) {
+    const editSelect = new StringSelectMenuBuilder()
+      .setCustomId('settings:dm_templates_edit')
+      .setPlaceholder('Select a template to edit')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(
+        templates.slice(0, 25).map((template) => ({
+          label: template.name.slice(0, 100),
+          value: template.id
+        }))
+      );
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(editSelect));
+
+    const deleteSelect = new StringSelectMenuBuilder()
+      .setCustomId('settings:dm_templates_delete')
+      .setPlaceholder('Select a template to delete')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(
+        templates.slice(0, 25).map((template) => ({
+          label: template.name.slice(0, 100),
+          value: template.id
+        }))
+      );
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(deleteSelect));
+  }
+
+  return {
+    content: `**Recruit DM templates**\n` + `${summary}`,
+    components: rows
   };
 }

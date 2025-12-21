@@ -1,4 +1,5 @@
 import type { ClientEvent } from '@/events/types';
+import { startRecruitThreadAutoCloser } from '@/recruit/autoCloseScheduler';
 import { logger } from '@/utils/logger';
 
 const event: ClientEvent<'clientReady'> = {
@@ -9,6 +10,8 @@ const event: ClientEvent<'clientReady'> = {
       activities: [{ name: 'clashing with goblins' }],
       status: 'online'
     });
+    startRecruitThreadAutoCloser(client);
+
     logger.info(
       {
         user: client.user?.tag,

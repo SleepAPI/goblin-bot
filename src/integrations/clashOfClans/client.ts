@@ -32,6 +32,22 @@ export type CocPlayer = {
   role?: string;
 };
 
+export type CocClanMember = {
+  tag: string;
+  name: string;
+  townHallLevel?: number;
+};
+
+export type CocClan = {
+  tag: string;
+  name: string;
+  members: number;
+  memberList?: CocClanMember[];
+  memberLimit?: number;
+  description?: string;
+  type?: string;
+};
+
 export type CocWarAttack = {
   attackerTag: string;
   defenderTag: string;
@@ -164,6 +180,14 @@ export class ClashOfClansClient {
     const tag = normalizePlayerTag(playerTag);
 
     return await this.request<CocPlayer>(`/players/${encodeURIComponent(tag)}`);
+  }
+
+  async getClanByTag(clanTag: string): Promise<CocClan> {
+    const tag = normalizePlayerTag(clanTag);
+    if (!tag || tag === '#') {
+      throw new Error('Invalid clan tag');
+    }
+    return await this.request<CocClan>(`/clans/${encodeURIComponent(tag)}`);
   }
 
   async getCurrentWarByClanTag(clanTag: string): Promise<CocCurrentWar> {
