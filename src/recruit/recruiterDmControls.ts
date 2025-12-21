@@ -1,6 +1,6 @@
-import { type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
-import { getRecruitDmSession, type RecruitDmSession } from '@/recruit/dmSessionStore';
 import { renderDmTemplate } from '@/recruit/dmCoordinator';
+import { getRecruitDmSession, type RecruitDmSession } from '@/recruit/dmSessionStore';
+import { type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
 
 function isRecruiterDmCustomId(customId: string): boolean {
   return customId.startsWith('recruit_dm:');
@@ -41,7 +41,7 @@ async function tryDmRecruiter(
 ): Promise<boolean> {
   try {
     await recruiter.send({
-      content: `Copy/paste this to <@${session.applicantId}>:\n\n${message}`,
+      content: message,
       allowedMentions: { parse: [], users: [] }
     });
     return true;
