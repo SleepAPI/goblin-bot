@@ -34,6 +34,22 @@ function buildManualDmPayload(session: RecruitDmSession, message: string) {
   };
 }
 
+async function tryDmRecruiter(
+  session: RecruitDmSession,
+  recruiter: ButtonInteraction['user'],
+  message: string
+): Promise<boolean> {
+  try {
+    await recruiter.send({
+      content: `Copy/paste this to <@${session.applicantId}>:\n\n${message}`,
+      allowedMentions: { parse: [], users: [] }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function handleRecruiterDmComponentInteraction(
   interaction: ButtonInteraction | StringSelectMenuInteraction
 ): Promise<boolean> {
@@ -73,15 +89,24 @@ export async function handleRecruiterDmComponentInteraction(
   }
   const rendered = renderDmTemplate(template.content, session);
   const { instructions, template: templateText } = buildManualDmPayload(session, rendered);
+  const dmSent = await tryDmRecruiter(session, interaction.user, templateText);
+
+  const instructionMessage = dmSent
+    ? `${instructions}\n\n📬 I sent you the template via DM.`
+    : `${instructions}\n\n⚠️ I could not DM you. Copy the template below instead.`;
+
   await interaction.reply({
-    content: instructions,
+    content: instructionMessage,
     allowedMentions: { parse: [], users: [] },
     ephemeral: true
   });
-  await interaction.followUp({
-    content: templateText,
-    allowedMentions: { parse: [], users: [] },
-    ephemeral: true
-  });
+
+  if (!dmSent) {
+    await interaction.followUp({
+      content: templateText,
+      allowedMentions: { parse: [], users: [] },
+      ephemeral: true
+    });
+  }
   return true;
 }
