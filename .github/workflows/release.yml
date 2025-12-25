@@ -111,6 +111,7 @@ jobs:
 
           rsync -az --delete -e "ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR" dist/ "$SSH_HOST":"${{ env.DEPLOY_DIR }}"/dist/
           rsync -az -e "ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR" package.json package-lock.json "$SSH_HOST":"${{ env.DEPLOY_DIR }}"/
+          rsync -az -e "ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR" src/data/ "$SSH_HOST":"${{ env.DEPLOY_DIR }}"/src/data/
 
           ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR "$SSH_HOST" << ENDSSH
             set -euo pipefail
