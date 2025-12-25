@@ -144,7 +144,13 @@ const command: ChatInputCommand = {
         }
       } else {
         // No month specified - show available months for selection
-        const availableMonths = await listAvailableMonths(clans[0].tag);
+        // Collect all available months from all clans (like autocomplete does)
+        const allMonths = new Set<string>();
+        for (const clan of clans) {
+          const months = await listAvailableMonths(clan.tag);
+          months.forEach((month) => allMonths.add(month));
+        }
+        const availableMonths = Array.from(allMonths).sort().reverse();
 
         // Check if there's an active CWL happening
         let hasActiveCwl = false;
@@ -168,38 +174,51 @@ const command: ChatInputCommand = {
           // Error checking CWL status, assume no active CWL
         }
 
-        // Show month selection menu
-        const monthSelect = new StringSelectMenuBuilder()
-          .setCustomId(`cwl:select-month:${interaction.id}`)
-          .setPlaceholder('Select a month to calculate CWL bonus medals')
-          .setMinValues(1)
-          .setMaxValues(1)
-          .addOptions(
-            availableMonths.map((month) => {
-              const [year, monthNum] = month.split('-');
-              const date = new Date(parseInt(year), parseInt(monthNum) - 1);
-              const monthName = date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-              // Only mark as "Current/Ongoing" if it's the current month AND there's an active CWL
-              const isCurrentAndActive = month === currentMonth && hasActiveCwl;
-              return {
-                label: isCurrentAndActive ? `${monthName} (Current/Ongoing)` : monthName,
-                value: month,
-                description: isCurrentAndActive ? 'Current month - active CWL in progress' : `CWL data for ${monthName}`
-              };
-            })
-          );
+        // Build list of options for the select menu
+        const options: Array<{ label: string; value: string; description: string }> = [];
+
+        // Add cached months
+        for (const month of availableMonths) {
+          const [year, monthNum] = month.split('-');
+          const date = new Date(parseInt(year), parseInt(monthNum) - 1);
+          const monthName = date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+          // Only mark as "Current/Ongoing" if it's the current month AND there's an active CWL
+          const isCurrentAndActive = month === currentMonth && hasActiveCwl;
+          options.push({
+            label: isCurrentAndActive ? `${monthName} (Current/Ongoing)` : monthName,
+            value: month,
+            description: isCurrentAndActive ? 'Current month - active CWL in progress' : `CWL data for ${monthName}`
+          });
+        }
 
         // Add current month option only if there's an active CWL and it's not already in the list
         if (hasActiveCwl && !availableMonths.includes(currentMonth)) {
           const [year, monthNum] = currentMonth.split('-');
           const date = new Date(parseInt(year), parseInt(monthNum) - 1);
           const monthName = date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-          monthSelect.addOptions({
+          options.push({
             label: `${monthName} (Current/Ongoing)`,
             value: currentMonth,
             description: 'Current month - active CWL in progress'
           });
         }
+
+        // Check if we have any options - Discord requires at least 1 option
+        if (options.length === 0) {
+          await interaction.editReply({
+            content:
+              'No CWL data available. No cached months found and no active CWL detected. Please specify a month using the `month` option, or wait for CWL data to be cached.'
+          });
+          return;
+        }
+
+        // Show month selection menu
+        const monthSelect = new StringSelectMenuBuilder()
+          .setCustomId(`cwl:select-month:${interaction.id}`)
+          .setPlaceholder('Select a month to calculate CWL bonus medals')
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(options);
 
         const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(monthSelect);
 

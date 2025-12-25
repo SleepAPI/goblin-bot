@@ -1,9 +1,15 @@
 import type { CocCwlWar } from '@/integrations/clashOfClans/client';
 import { normalizePlayerTag } from '@/integrations/clashOfClans/client';
+import { logger } from '@/utils/logger';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DATA_DIR = path.resolve(process.cwd(), 'src', 'data');
+// Resolve data directory relative to the dist file location
+// In production, dist/index.js is the entry point, so we go up from dist/ to project root
+const distDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(distDir, '..');
+const DATA_DIR = path.resolve(projectRoot, 'src', 'data');
 
 /**
  * Normalize clan tag for use in file paths (remove # and uppercase)
@@ -171,13 +177,32 @@ export async function listAvailableMonths(clanTag: string): Promise<string[]> {
   try {
     const clanPath = normalizeClanTagForPath(clanTag);
     const clanDir = path.join(DATA_DIR, clanPath);
+    
+    // Log for debugging
+    logger.debug({ clanTag, clanPath, clanDir, dataDir: DATA_DIR, cwd: process.cwd() }, 'Listing months for clan');
+    
+    // Check if directory exists
+    try {
+      await fs.access(clanDir);
+    } catch (accessErr) {
+      // Directory doesn't exist, log and return empty array
+      logger.warn({ clanTag, clanPath, clanDir, dataDir: DATA_DIR, cwd: process.cwd(), err: accessErr }, 'Clan data directory does not exist');
+      return [];
+    }
+    
     const entries = await fs.readdir(clanDir, { withFileTypes: true });
-    return entries
+    const months = entries
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
+      .filter((name) => /^\d{4}-\d{2}$/.test(name)) // Only include valid YYYY-MM format
       .sort()
       .reverse();
-  } catch {
+    
+    logger.debug({ clanTag, clanPath, months, entryCount: entries.length }, 'Found months for clan');
+    return months;
+  } catch (err) {
+    // Log error for debugging but still return empty array
+    logger.error({ err, clanTag, clanPath: normalizeClanTagForPath(clanTag), dataDir: DATA_DIR, cwd: process.cwd() }, 'Error listing months for clan');
     return [];
   }
 }
