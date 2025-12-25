@@ -76,7 +76,7 @@ const command: ChatInputCommand = {
       const player = await client.getPlayerByTag(playerTag);
 
       const thValue = typeof player.townHallLevel === 'number' && player.townHallLevel > 0 ? player.townHallLevel : '?';
-      const threadName = `${player.name} TH ${thValue} ${source}.`;
+      const threadName = `${player.name} TH ${thValue} ${source}. @${interaction.user.username}`;
 
       // Reply in-channel, then start a thread from that reply message.
       await interaction.editReply({ content: `Creating thread for \`${threadName}\`...` });

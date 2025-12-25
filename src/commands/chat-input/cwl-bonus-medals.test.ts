@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import type { CocCwlWar, CocWarMember, CocWarAttack } from '@/integrations/clashOfClans/client';
+import type { CocCwlWar, CocWarAttack, CocWarMember } from '@/integrations/clashOfClans/client';
+import { describe, expect, it } from 'vitest';
 
 // Mock war data helpers
 function createMockWar(

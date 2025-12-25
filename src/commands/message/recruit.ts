@@ -292,8 +292,9 @@ const command: MessageCommand = {
       const player = await cocClient.getPlayerByTag(playerTag);
       const thValue = typeof player.townHallLevel === 'number' && player.townHallLevel > 0 ? player.townHallLevel : '?';
       const safePlayerName = sanitizeThreadName(player.name) || player.tag.replace('#', '');
-      const threadName = `${safePlayerName} TH ${thValue} (Discord)`;
       const applicantUser = await resolveApplicantUser(interaction.targetMessage);
+      const applicantUsername = applicantUser && !applicantUser.bot ? ` @${applicantUser.username}` : '';
+      const threadName = `${safePlayerName} TH ${thValue} (Discord)${applicantUsername}`;
 
       if (applicantUser && !applicantUser.bot && applicantUser.id !== interaction.user.id) {
         const existing = getOpenApplicantThread(applicantUser.id);
