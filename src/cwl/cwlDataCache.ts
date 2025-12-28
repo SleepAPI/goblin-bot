@@ -6,12 +6,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Resolve data directory relative to the file location
-// In production: dist/cwl/cwlDataCache.js -> go up 2 levels to project root -> src/data
-// In development: src/cwl/cwlDataCache.ts -> go up 2 levels to project root -> src/data
+// In production: dist/cwl/cwlDataCache.js -> go up 2 levels to project root
+// In development: src/cwl/cwlDataCache.ts -> go up 2 levels to project root
 const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
-// Go up 2 levels from current file (dist/cwl or src/cwl) to project root, then to src/data
+// Go up 2 levels from current file (dist/cwl or src/cwl) to project root
 const projectRoot = path.resolve(currentFileDir, '..', '..');
-const DATA_DIR = path.resolve(projectRoot, 'src', 'data');
+
+// Determine data directory location:
+// 1. Environment variable (if set) - highest priority
+// 2. In production (NODE_ENV=production), use data/ at project root (src/ might not exist)
+// 3. Otherwise, use src/data (for development)
+const DATA_DIR =
+  process.env.CWL_DATA_DIR ||
+  (process.env.NODE_ENV === 'production'
+    ? path.resolve(projectRoot, 'data')
+    : path.resolve(projectRoot, 'src', 'data'));
 
 /**
  * Normalize clan tag for use in file paths (remove # and uppercase)
@@ -73,17 +82,19 @@ function getDayFromWar(war: CocCwlWar, roundIndex?: number): number | null {
 /**
  * Get file path for a cached CWL war
  */
-function getWarCachePath(clanTag: string, dateKey: string, day: number): string {
+async function getWarCachePath(clanTag: string, dateKey: string, day: number): Promise<string> {
+  const actualDataDir = await getActualDataDir();
   const clanPath = normalizeClanTagForPath(clanTag);
-  return path.join(DATA_DIR, clanPath, dateKey, `day${day}.json`);
+  return path.join(actualDataDir, clanPath, dateKey, `day${day}.json`);
 }
 
 /**
  * Ensure the cache directory exists
  */
 async function ensureCacheDir(clanTag: string, dateKey: string): Promise<void> {
+  const actualDataDir = await getActualDataDir();
   const clanPath = normalizeClanTagForPath(clanTag);
-  const dir = path.join(DATA_DIR, clanPath, dateKey);
+  const dir = path.join(actualDataDir, clanPath, dateKey);
   await fs.mkdir(dir, { recursive: true });
 }
 
@@ -99,7 +110,7 @@ export function isWarFinished(war: CocCwlWar): boolean {
  */
 export async function loadCachedWar(clanTag: string, dateKey: string, day: number): Promise<CocCwlWar | null> {
   try {
-    const filePath = getWarCachePath(clanTag, dateKey, day);
+    const filePath = await getWarCachePath(clanTag, dateKey, day);
     const raw = await fs.readFile(filePath, 'utf8');
     return JSON.parse(raw) as CocCwlWar;
   } catch {
@@ -129,7 +140,7 @@ export async function saveWarToCache(war: CocCwlWar, clanTag: string, roundIndex
     }
 
     await ensureCacheDir(clanTag, dateKey);
-    const filePath = getWarCachePath(clanTag, dateKey, day);
+    const filePath = await getWarCachePath(clanTag, dateKey, day);
     const tmp = `${filePath}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(war, null, 2), 'utf8');
     await fs.rename(tmp, filePath);
@@ -172,16 +183,56 @@ export function getDateKey(date: string | Date): string {
   return `${year}-${month}`;
 }
 
+// Cache the actual data directory after first resolution
+let cachedActualDataDir: string | null = null;
+
+/**
+ * Get the actual data directory that exists (try multiple locations)
+ * Caches the result after first resolution
+ */
+async function getActualDataDir(): Promise<string> {
+  if (cachedActualDataDir) {
+    return cachedActualDataDir;
+  }
+
+  // If environment variable is set, use it
+  if (process.env.CWL_DATA_DIR) {
+    cachedActualDataDir = process.env.CWL_DATA_DIR;
+    return cachedActualDataDir;
+  }
+
+  // Try src/data first (for development)
+  const srcDataDir = path.resolve(projectRoot, 'src', 'data');
+  try {
+    await fs.access(srcDataDir);
+    cachedActualDataDir = srcDataDir;
+    return cachedActualDataDir;
+  } catch {
+    // src/data doesn't exist, try data at project root (for production)
+    const rootDataDir = path.resolve(projectRoot, 'data');
+    try {
+      await fs.access(rootDataDir);
+      cachedActualDataDir = rootDataDir;
+      return cachedActualDataDir;
+    } catch {
+      // Neither exists, return the default (will fail gracefully later)
+      cachedActualDataDir = DATA_DIR;
+      return cachedActualDataDir;
+    }
+  }
+}
+
 /**
  * List available date keys (months) for a clan
  */
 export async function listAvailableMonths(clanTag: string): Promise<string[]> {
   try {
+    const actualDataDir = await getActualDataDir();
     const clanPath = normalizeClanTagForPath(clanTag);
-    const clanDir = path.join(DATA_DIR, clanPath);
+    const clanDir = path.join(actualDataDir, clanPath);
 
     // Log for debugging
-    logger.debug({ clanTag, clanPath, clanDir, dataDir: DATA_DIR, cwd: process.cwd() }, 'Listing months for clan');
+    logger.debug({ clanTag, clanPath, clanDir, dataDir: actualDataDir, cwd: process.cwd() }, 'Listing months for clan');
 
     // Check if directory exists
     try {
@@ -189,7 +240,7 @@ export async function listAvailableMonths(clanTag: string): Promise<string[]> {
     } catch (accessErr) {
       // Directory doesn't exist, log and return empty array
       logger.warn(
-        { clanTag, clanPath, clanDir, dataDir: DATA_DIR, cwd: process.cwd(), err: accessErr },
+        { clanTag, clanPath, clanDir, dataDir: actualDataDir, cwd: process.cwd(), err: accessErr },
         'Clan data directory does not exist'
       );
       return [];
@@ -207,8 +258,10 @@ export async function listAvailableMonths(clanTag: string): Promise<string[]> {
     return months;
   } catch (err) {
     // Log error for debugging but still return empty array
+    // Use cached data dir if available, otherwise fall back to default
+    const dataDirForLog = cachedActualDataDir || DATA_DIR;
     logger.error(
-      { err, clanTag, clanPath: normalizeClanTagForPath(clanTag), dataDir: DATA_DIR, cwd: process.cwd() },
+      { err, clanTag, clanPath: normalizeClanTagForPath(clanTag), dataDir: dataDirForLog, cwd: process.cwd() },
       'Error listing months for clan'
     );
     return [];
