@@ -6,21 +6,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Resolve data directory relative to the file location
-// In production: dist/cwl/cwlDataCache.js -> go up 2 levels to project root
-// In development: src/cwl/cwlDataCache.ts -> go up 2 levels to project root
+// In production: dist/cwl/cwlDataCache.js -> go up 2 levels to project root -> src/data
+// In development: src/cwl/cwlDataCache.ts -> go up 2 levels to project root -> src/data
 const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
 // Go up 2 levels from current file (dist/cwl or src/cwl) to project root
 const projectRoot = path.resolve(currentFileDir, '..', '..');
-
-// Determine data directory location:
-// 1. Environment variable (if set) - highest priority
-// 2. In production (NODE_ENV=production), use data/ at project root (src/ might not exist)
-// 3. Otherwise, use src/data (for development)
-const DATA_DIR =
-  process.env.CWL_DATA_DIR ||
-  (process.env.NODE_ENV === 'production'
-    ? path.resolve(projectRoot, 'data')
-    : path.resolve(projectRoot, 'src', 'data'));
+// Data is always at <git root>/src/data
+const DATA_DIR = path.resolve(projectRoot, 'src', 'data');
 
 /**
  * Normalize clan tag for use in file paths (remove # and uppercase)
@@ -183,43 +175,19 @@ export function getDateKey(date: string | Date): string {
   return `${year}-${month}`;
 }
 
-// Cache the actual data directory after first resolution
-let cachedActualDataDir: string | null = null;
-
 /**
- * Get the actual data directory that exists (try multiple locations)
- * Caches the result after first resolution
+ * Get the data directory (always at <git root>/src/data)
+ * Ensures the directory exists, creating it if necessary
  */
 async function getActualDataDir(): Promise<string> {
-  if (cachedActualDataDir) {
-    return cachedActualDataDir;
-  }
-
-  // If environment variable is set, use it
-  if (process.env.CWL_DATA_DIR) {
-    cachedActualDataDir = process.env.CWL_DATA_DIR;
-    return cachedActualDataDir;
-  }
-
-  // Try src/data first (for development)
-  const srcDataDir = path.resolve(projectRoot, 'src', 'data');
+  // Ensure the directory exists
   try {
-    await fs.access(srcDataDir);
-    cachedActualDataDir = srcDataDir;
-    return cachedActualDataDir;
+    await fs.mkdir(DATA_DIR, { recursive: true });
   } catch {
-    // src/data doesn't exist, try data at project root (for production)
-    const rootDataDir = path.resolve(projectRoot, 'data');
-    try {
-      await fs.access(rootDataDir);
-      cachedActualDataDir = rootDataDir;
-      return cachedActualDataDir;
-    } catch {
-      // Neither exists, return the default (will fail gracefully later)
-      cachedActualDataDir = DATA_DIR;
-      return cachedActualDataDir;
-    }
+    // Ignore errors - directory might already exist or creation might fail
+    // Will fail gracefully later when trying to access files
   }
+  return DATA_DIR;
 }
 
 /**
@@ -258,10 +226,8 @@ export async function listAvailableMonths(clanTag: string): Promise<string[]> {
     return months;
   } catch (err) {
     // Log error for debugging but still return empty array
-    // Use cached data dir if available, otherwise fall back to default
-    const dataDirForLog = cachedActualDataDir || DATA_DIR;
     logger.error(
-      { err, clanTag, clanPath: normalizeClanTagForPath(clanTag), dataDir: dataDirForLog, cwd: process.cwd() },
+      { err, clanTag, clanPath: normalizeClanTagForPath(clanTag), dataDir: DATA_DIR, cwd: process.cwd() },
       'Error listing months for clan'
     );
     return [];
