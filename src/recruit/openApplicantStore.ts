@@ -9,14 +9,17 @@ export type OpenApplicantEntry = {
   playerTag: string;
   guildId?: string;
   openedAt: number;
+  sourceMessageId?: string;
 };
 
 const STORE_PATH = path.resolve(process.cwd(), 'tmp', 'open-recruit-applicants.json');
 const openByApplicant = new Map<string, OpenApplicantEntry>();
 const openByThread = new Map<string, OpenApplicantEntry>();
 const openByPlayerTag = new Map<string, OpenApplicantEntry>();
+const openByMessageId = new Map<string, OpenApplicantEntry>();
 const pendingApplicants = new Set<string>();
 const pendingPlayerTags = new Set<string>();
+const pendingMessageIds = new Set<string>();
 
 type StorePayload = {
   version: 1;
@@ -46,10 +49,17 @@ async function loadFromDisk() {
     openByApplicant.clear();
     openByThread.clear();
     openByPlayerTag.clear();
+    openByMessageId.clear();
     for (const entry of parsed.entries) {
       openByApplicant.set(entry.applicantId, entry);
       openByThread.set(entry.threadId, entry);
-      openByPlayerTag.set(entry.playerTag.toUpperCase(), entry);
+      const normalizedPlayerTag = entry.playerTag.toUpperCase();
+      if (normalizedPlayerTag) {
+        openByPlayerTag.set(normalizedPlayerTag, entry);
+      }
+      if (entry.sourceMessageId) {
+        openByMessageId.set(entry.sourceMessageId, entry);
+      }
     }
   } catch {
     // ignore missing/corrupt files
@@ -65,6 +75,10 @@ export function getOpenThreadByPlayerTag(playerTag: string): OpenApplicantEntry 
   const normalized = playerTag.toUpperCase().trim();
   const withHash = normalized.startsWith('#') ? normalized : `#${normalized}`;
   return openByPlayerTag.get(withHash);
+}
+
+export function getOpenThreadByMessageId(messageId: string): OpenApplicantEntry | undefined {
+  return openByMessageId.get(messageId);
 }
 
 export function getAllOpenApplicantEntries(): OpenApplicantEntry[] {
@@ -88,6 +102,13 @@ export function tryLockPlayerTag(playerTag: string): boolean {
   return true;
 }
 
+export function tryLockMessageId(messageId: string): boolean {
+  if (openByMessageId.has(messageId)) return false;
+  if (pendingMessageIds.has(messageId)) return false;
+  pendingMessageIds.add(messageId);
+  return true;
+}
+
 export function releaseApplicantLock(applicantId: string): void {
   pendingApplicants.delete(applicantId);
 }
@@ -99,17 +120,31 @@ export function releasePlayerTagLock(playerTag: string): void {
   pendingPlayerTags.delete(withHash);
 }
 
+export function releaseMessageIdLock(messageId: string): void {
+  pendingMessageIds.delete(messageId);
+}
+
 export function registerOpenApplicantThread(entry: Omit<OpenApplicantEntry, 'openedAt'>): OpenApplicantEntry {
   pendingApplicants.delete(entry.applicantId);
   const normalizedPlayerTag = entry.playerTag.toUpperCase();
-  pendingPlayerTags.delete(normalizedPlayerTag);
+  if (normalizedPlayerTag) {
+    pendingPlayerTags.delete(normalizedPlayerTag);
+  }
+  if (entry.sourceMessageId) {
+    pendingMessageIds.delete(entry.sourceMessageId);
+  }
   const record: OpenApplicantEntry = {
     ...entry,
     openedAt: Date.now()
   };
   openByApplicant.set(record.applicantId, record);
   openByThread.set(record.threadId, record);
-  openByPlayerTag.set(normalizedPlayerTag, record);
+  if (normalizedPlayerTag) {
+    openByPlayerTag.set(normalizedPlayerTag, record);
+  }
+  if (record.sourceMessageId) {
+    openByMessageId.set(record.sourceMessageId, record);
+  }
   void persist();
   return record;
 }
@@ -120,7 +155,12 @@ export function clearOpenApplicantThreadByThreadId(threadId: string): boolean {
   openByThread.delete(threadId);
   openByApplicant.delete(existing.applicantId);
   const normalizedPlayerTag = existing.playerTag.toUpperCase();
-  openByPlayerTag.delete(normalizedPlayerTag);
+  if (normalizedPlayerTag) {
+    openByPlayerTag.delete(normalizedPlayerTag);
+  }
+  if (existing.sourceMessageId) {
+    openByMessageId.delete(existing.sourceMessageId);
+  }
   void persist();
   return true;
 }

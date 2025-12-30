@@ -247,6 +247,54 @@ export async function findExistingThreadByPlayerTag(
   }
 }
 
+export async function findExistingThreadByMessageId(
+  channel: Message['channel'],
+  messageId: string
+): Promise<AnyThreadChannel | null> {
+  if (!channel.isTextBased() || channel.isDMBased()) return null;
+  if (!('guild' in channel) || !channel.guild) return null;
+
+  try {
+    const fetched = await channel.guild.channels.fetchActiveThreads();
+
+    // Check threads in this channel
+    const candidateThreads = Array.from(fetched.threads.values()).filter((thread) => {
+      if (thread.parentId !== channel.id) return false;
+      if (thread.archived) return false;
+      return true;
+    });
+
+    // Search each thread's messages for the message ID reference
+    for (const thread of candidateThreads) {
+      try {
+        // Fetch the first few messages to check for message ID references
+        const messages = await thread.messages.fetch({ limit: 10 });
+        for (const message of messages.values()) {
+          // Check message content for message link or ID
+          if (message.content && message.content.includes(messageId)) {
+            return thread;
+          }
+          // Check embeds for message references
+          for (const embed of message.embeds) {
+            const description = embed.description ?? '';
+            const footer = embed.footer?.text ?? '';
+            if (description.includes(messageId) || footer.includes(messageId)) {
+              return thread;
+            }
+          }
+        }
+      } catch {
+        // Skip threads we can't read
+        continue;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureRecruitThreadFromMessage(
   parentMessage: Message,
   threadName: string

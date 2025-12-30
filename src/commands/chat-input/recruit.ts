@@ -2,16 +2,13 @@ import type { ChatInputCommand } from '@/commands/types';
 import { FAMILY_LEADER_ROLE_ID } from '@/config/roles';
 import { ClashOfClansClient, isValidPlayerTag, normalizePlayerTag } from '@/integrations/clashOfClans/client';
 import { getRecruitAllowedRoleIds } from '@/recruit/configStore';
+import { ensureRecruitThreadFromMessage, populateRecruitThread } from '@/recruit/createRecruitThread';
 import {
-  ensureRecruitThreadFromMessage,
-  findExistingThreadByPlayerTag,
-  populateRecruitThread
-} from '@/recruit/createRecruitThread';
-import {
-  getOpenThreadByPlayerTag,
+  clearOpenApplicantThreadByThreadId,
+  getOpenThreadByMessageId,
   registerOpenApplicantThread,
-  releasePlayerTagLock,
-  tryLockPlayerTag
+  releaseMessageIdLock,
+  tryLockMessageId
 } from '@/recruit/openApplicantStore';
 import { getRoleIdsFromMember } from '@/utils/discordRoles';
 import { SlashCommandBuilder } from 'discord.js';
@@ -81,44 +78,46 @@ const command: ChatInputCommand = {
     }
     const client = new ClashOfClansClient();
     const normalizedPlayerTag = normalizePlayerTag(playerTag);
-    let pendingPlayerTagLock: string | null = null;
+    const sourceInteractionId = interaction.id;
+    let pendingMessageIdLock: string | null = null;
 
     try {
-      // Check for existing thread by player tag in the store
-      const existingInStore = getOpenThreadByPlayerTag(normalizedPlayerTag);
+      // Check for existing thread by interaction ID in the store (fast in-memory lookup)
+      const existingInStore = getOpenThreadByMessageId(sourceInteractionId);
       if (existingInStore) {
         const existingChannel = await interaction.client.channels.fetch(existingInStore.threadId).catch(() => null);
         const isStillOpen = existingChannel?.isThread() && !existingChannel.archived;
         if (isStillOpen) {
           await interaction.editReply(
-            `A recruit thread already exists for this player: <#${existingInStore.threadId}>.\n` +
+            `A recruit thread already exists for this command: <#${existingInStore.threadId}>.\n` +
               'Close the existing thread before creating another.'
           );
           return;
         }
+        clearOpenApplicantThreadByThreadId(existingInStore.threadId);
       }
 
-      // Check for existing active threads in the channel by player tag
-      const channel = interaction.channel;
-      if (channel && !channel.isDMBased()) {
-        const existingThread = await findExistingThreadByPlayerTag(channel, normalizedPlayerTag);
-        if (existingThread && !existingThread.archived) {
-          await interaction.editReply(
-            `A recruit thread already exists for this player in this channel: <#${existingThread.id}>.\n` +
-              'Close the existing thread before creating another.'
-          );
-          return;
+      // Lock the interaction ID to prevent concurrent creation
+      if (!tryLockMessageId(sourceInteractionId)) {
+        // If lock fails, check one more time if a thread exists (race condition)
+        const existingAfterLock = getOpenThreadByMessageId(sourceInteractionId);
+        if (existingAfterLock) {
+          const existingChannel = await interaction.client.channels.fetch(existingAfterLock.threadId).catch(() => null);
+          const isStillOpen = existingChannel?.isThread() && !existingChannel.archived;
+          if (isStillOpen) {
+            await interaction.editReply(
+              `A recruit thread already exists for this command: <#${existingAfterLock.threadId}>.\n` +
+                'Close the existing thread before creating another.'
+            );
+            return;
+          }
         }
-      }
-
-      // Try to lock the player tag to prevent concurrent creation
-      if (!tryLockPlayerTag(normalizedPlayerTag)) {
         await interaction.editReply(
-          'Another recruiter is already creating a recruit thread for this player. Please try again shortly.'
+          'Another recruiter is already creating a recruit thread for this command. Please try again shortly.'
         );
         return;
       }
-      pendingPlayerTagLock = normalizedPlayerTag;
+      pendingMessageIdLock = sourceInteractionId;
 
       const source = interaction.options.getString('source') ?? 'unknown';
       const player = await client.getPlayerByTag(playerTag);
@@ -132,7 +131,7 @@ const command: ChatInputCommand = {
       const thread = await ensureRecruitThreadFromMessage(replyMessage, threadName);
 
       if (thread) {
-        // Register the thread in the store (using a placeholder applicant ID since we don't have one)
+        // Register the thread in the store (using interaction ID as source message ID)
         const placeholderApplicantId = `player-tag:${normalizedPlayerTag}`;
         registerOpenApplicantThread({
           applicantId: placeholderApplicantId,
@@ -140,9 +139,10 @@ const command: ChatInputCommand = {
           threadId: thread.id,
           threadUrl: `https://discord.com/channels/${thread.guildId ?? '@me'}/${thread.id}`,
           playerTag: normalizedPlayerTag,
-          guildId: thread.guildId ?? guildId
+          guildId: thread.guildId ?? guildId,
+          sourceMessageId: sourceInteractionId
         });
-        pendingPlayerTagLock = null;
+        pendingMessageIdLock = null;
 
         const summaryParts = [
           interaction.guild ? `from ${interaction.guild.name}` : undefined,
@@ -168,8 +168,8 @@ const command: ChatInputCommand = {
         content: `Could not look up that player tag.\n` + `- Tag: \`${playerTag}\`\n` + `- Error: ${msg}\n`
       });
     } finally {
-      if (pendingPlayerTagLock) {
-        releasePlayerTagLock(pendingPlayerTagLock);
+      if (pendingMessageIdLock) {
+        releaseMessageIdLock(pendingMessageIdLock);
       }
     }
   }
