@@ -843,7 +843,13 @@ describe('CWL Bonus Medals - Real Data Tests', () => {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
     const cacheDir = path.resolve(process.cwd(), 'src/data/2GRUGPJRR/2026-01');
-    const entries = await fs.readdir(cacheDir, { withFileTypes: true });
+    let entries: Array<{ name: string; isFile: () => boolean }> = [];
+    try {
+      entries = await fs.readdir(cacheDir, { withFileTypes: true });
+    } catch (err) {
+      console.warn('Skipping ongoing month test; cache directory missing', err);
+      return;
+    }
     const dayFiles = entries
       .filter((entry) => entry.isFile() && /^day\d+\.json$/i.test(entry.name))
       .map((entry) => parseInt(entry.name.match(/^day(\d+)\.json$/i)![1], 10))
