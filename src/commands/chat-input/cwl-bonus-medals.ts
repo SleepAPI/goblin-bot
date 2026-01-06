@@ -357,6 +357,7 @@ export async function calculateClanBonusMedals(
   const wars: Array<{ war: CocCwlWar; index: number; opponentName: string }> = [];
   const currentMonthKey = getDateKey(new Date());
   let processedWarCount = 0;
+  const cachedEndTimes = new Set<string>();
 
   // If dateKey is provided, try to load from cache first
   if (dateKey) {
@@ -371,6 +372,9 @@ export async function calculateClanBonusMedals(
       for (let i = 0; i < sortedDays.length; i++) {
         const day = sortedDays[i];
         const war = cachedWars.get(day)!;
+        if (war.endTime) {
+          cachedEndTimes.add(war.endTime);
+        }
         // Skip duplicate wars (same endTime means same war)
         if (war.endTime && seenEndTimes.has(war.endTime)) {
           continue;
@@ -474,9 +478,17 @@ export async function calculateClanBonusMedals(
           continue;
         }
 
+        if (war.endTime && cachedEndTimes.has(war.endTime)) {
+          continue;
+        }
+
         const warIndex = processedWarCount;
         if (fetchedFromApi && dateKey) {
+          // Save to cache using the sequential war index so day files match the cached order.
           await saveWarToCache(war, clanTag, warIndex);
+          if (war.endTime) {
+            cachedEndTimes.add(war.endTime);
+          }
         }
 
         if (!war.clan?.members || war.clan.members.length === 0) {

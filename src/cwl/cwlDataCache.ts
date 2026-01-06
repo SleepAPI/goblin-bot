@@ -88,10 +88,53 @@ async function ensureCacheDir(clanTag: string, dateKey: string): Promise<void> {
 }
 
 /**
- * Check if a war has finished (state is "warEnded")
+ * Parse the war's end time and return the timestamp, if available.
+ */
+function normalizeWarEndTime(endTime: string): string | null {
+  const match = endTime.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(?:\.(\d{1,3}))?Z$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day, hour, minute, second, fraction] = match;
+  const milliseconds = (fraction || '000').padEnd(3, '0').slice(0, 3);
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}.${milliseconds}Z`;
+}
+
+function parseWarEndTimestamp(war: CocCwlWar): number | null {
+  if (!war.endTime) {
+    return null;
+  }
+
+  const parsed = Date.parse(war.endTime);
+  if (!Number.isNaN(parsed)) {
+    return parsed;
+  }
+
+  const normalized = normalizeWarEndTime(war.endTime);
+  if (!normalized) {
+    return null;
+  }
+
+  const normalizedParsed = Date.parse(normalized);
+  return Number.isNaN(normalizedParsed) ? null : normalizedParsed;
+}
+
+/**
+ * Check if a war has finished (state is "warEnded" and the end time has passed).
  */
 export function isWarFinished(war: CocCwlWar): boolean {
-  return war.state === 'warEnded';
+  if (war.state !== 'warEnded') {
+    return false;
+  }
+
+  const endTimestamp = parseWarEndTimestamp(war);
+  if (endTimestamp === null) {
+    // Missing or unparsable end time - fall back to war state only.
+    return true;
+  }
+
+  return endTimestamp <= Date.now();
 }
 
 /**
@@ -125,6 +168,12 @@ export async function saveWarToCache(war: CocCwlWar, clanTag: string, roundIndex
 
     if (!dateKey || !day) {
       // Can't determine date/day, skip caching
+      return;
+    }
+
+    const cachedWar = await loadCachedWar(clanTag, dateKey, day);
+    if (cachedWar && cachedWar.endTime && war.endTime && cachedWar.endTime === war.endTime) {
+      // War already cached for this day, skip re-writing to avoid duplicates
       return;
     }
 
