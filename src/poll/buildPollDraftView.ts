@@ -1,4 +1,3 @@
-import type { PollDraft } from './types';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -6,6 +5,7 @@ import {
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder
 } from 'discord.js';
+import type { PollDraft } from './types';
 
 const DURATION_OPTIONS = [
   { label: '1 hour', value: '1' },
@@ -72,9 +72,12 @@ export function buildPollDraftView(draft: PollDraft): PollDraftView {
   const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`poll:add_choice:${userId}`)
-      .setLabel('Multiple choice')
+      .setLabel('+ Add multiple choice question')
       .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`poll:add_text:${userId}`).setLabel('Free text').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`poll:add_text:${userId}`)
+      .setLabel('+ Add free text question')
+      .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`poll:publish:${userId}`)
       .setLabel('Publish poll')
