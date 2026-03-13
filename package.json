@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "npx vite-node --watch src/index.ts",
+    "dev": "npm i && npm run build && npm run deploy && npx vite-node --watch src/index.ts",
     "build": "tsc --noEmit && vite build --ssr src/index.ts",
     "start": "node dist/index.js",
     "deploy": "NODE_ENV=production npx vite-node --config vite.deploy.config.ts scripts/deploy-commands.ts",

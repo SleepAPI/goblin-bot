@@ -376,8 +376,6 @@ async function showMemberInspection(
     .setDescription(`**${clanName}** • ${th}`)
     .setColor(member.disqualified ? 0xff0000 : member.flaggedForReview ? 0xff9900 : 0x00ae86);
 
-  const memberTh = member.townHallLevel || 0;
-
   // Summary
   embed.addFields({
     name: '📊 Summary',
@@ -444,9 +442,7 @@ async function showMemberInspection(
               : defense.attackerMapPosition !== undefined
                 ? ` (Attacked by Pos ${defense.attackerMapPosition})`
                 : '';
-        const summary = wasNotAttacked
-          ? 'Not attacked (full defense)'
-          : `${defense.starsDefended}⭐ defended`;
+        const summary = wasNotAttacked ? 'Not attacked (full defense)' : `${defense.starsDefended}⭐ defended`;
         return `**War ${defense.warIndex + 1}** vs ${defense.opponentName}\n   ${summary}${attackerInfo}`;
       })
       .join('\n');

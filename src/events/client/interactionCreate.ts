@@ -2,6 +2,8 @@ import { getChatInputCommandMap, getMessageCommandMap } from '@/bot/state';
 import { handleCwlComponentInteraction } from '@/cwl/handleCwlComponentInteraction';
 import { handleCwlNavigation } from '@/cwl/handleCwlNavigation';
 import type { ClientEvent } from '@/events/types';
+import { handlePollComponentInteraction, handlePollModalInteraction } from '@/poll/handlePollInteraction';
+import { handlePollVoteButtonInteraction, handlePollVoteModalInteraction } from '@/poll/handlePollVoteInteraction';
 import { handleApplicantDmInteraction } from '@/recruit/applicantDmInteractions';
 import { handleRecruitComponentInteraction } from '@/recruit/handleRecruitComponentInteraction';
 import { handleRecruiterDmComponentInteraction } from '@/recruit/recruiterDmControls';
@@ -57,6 +59,38 @@ const event: ClientEvent<'interactionCreate'> = {
       interaction.isRoleSelectMenu() ||
       interaction.isChannelSelectMenu()
     ) {
+      if (interaction.isButton()) {
+        try {
+          const handled = await handlePollVoteButtonInteraction(interaction);
+          if (handled) return;
+        } catch (err) {
+          logger.error({ err, customId: interaction.customId }, 'Poll vote button interaction failed');
+          const payload = {
+            content: 'Something went wrong recording your vote.',
+            flags: MessageFlags.Ephemeral
+          } as const;
+          if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+          else await interaction.reply(payload);
+          return;
+        }
+      }
+
+      if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu()) {
+        try {
+          const handled = await handlePollComponentInteraction(interaction);
+          if (handled) return;
+        } catch (err) {
+          logger.error({ err, customId: interaction.customId }, 'Poll component interaction failed');
+          const payload = {
+            content: 'Something went wrong with the poll builder.',
+            flags: MessageFlags.Ephemeral
+          } as const;
+          if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+          else await interaction.reply(payload);
+          return;
+        }
+      }
+
       try {
         const handled = await handleSettingsComponentInteraction(interaction);
         if (handled) return;
@@ -145,6 +179,34 @@ const event: ClientEvent<'interactionCreate'> = {
     }
 
     if (interaction.isModalSubmit()) {
+      try {
+        const handled = await handlePollVoteModalInteraction(interaction);
+        if (handled) return;
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, 'Poll vote modal interaction failed');
+        const payload = {
+          content: 'Something went wrong recording your response.',
+          flags: MessageFlags.Ephemeral
+        } as const;
+        if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+        else await interaction.reply(payload);
+        return;
+      }
+
+      try {
+        const handled = await handlePollModalInteraction(interaction);
+        if (handled) return;
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, 'Poll modal interaction failed');
+        const payload = {
+          content: 'Something went wrong with the poll modal.',
+          flags: MessageFlags.Ephemeral
+        } as const;
+        if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+        else await interaction.reply(payload);
+        return;
+      }
+
       try {
         const handled = await handleSettingsModalInteraction(interaction);
         if (handled) return;

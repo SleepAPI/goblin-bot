@@ -348,6 +348,37 @@ function warIncludesClan(war: CocCwlWar, clanTag: string): boolean {
   return clanSide === normalizedClanTag || opponentSide === normalizedClanTag;
 }
 
+function buildMirrorOpponentsMap(ourMembers: CocWarMember[], theirMembers: CocWarMember[]): Map<string, CocWarMember> {
+  const normalizeMembers = (members: CocWarMember[]) =>
+    members
+      .map((member, index) => ({
+        member,
+        position: member?.mapPosition ?? Number.MAX_SAFE_INTEGER,
+        index
+      }))
+      .filter((entry) => Boolean(entry.member?.tag))
+      .sort((a, b) => {
+        if (a.position !== b.position) {
+          return a.position - b.position;
+        }
+        return a.index - b.index;
+      });
+
+  const ourSorted = normalizeMembers(ourMembers);
+  const theirSorted = normalizeMembers(theirMembers);
+  const mirrorMap = new Map<string, CocWarMember>();
+  const limit = Math.min(ourSorted.length, theirSorted.length);
+  for (let i = 0; i < limit; i++) {
+    const ourEntry = ourSorted[i];
+    const theirEntry = theirSorted[i];
+    const ourTag = ourEntry.member?.tag;
+    const theirMember = theirEntry.member;
+    if (ourTag && theirMember) {
+      mirrorMap.set(ourTag, theirMember);
+    }
+  }
+  return mirrorMap;
+}
 export async function calculateClanBonusMedals(
   client: ClashOfClansClient,
   clanTag: string,
@@ -525,13 +556,7 @@ export async function calculateClanBonusMedals(
 
     if (!ourSide?.members || !theirSide?.members) continue;
 
-    // Create a map of opponent members by mapPosition for mirror checking
-    const opponentByMapPosition = new Map<number, CocWarMember>();
-    theirSide.members.forEach((member) => {
-      if (member.mapPosition !== undefined) {
-        opponentByMapPosition.set(member.mapPosition, member);
-      }
-    });
+    const mirrorOpponents = buildMirrorOpponentsMap(ourSide.members, theirSide.members);
 
     // Process each member
     for (const member of ourSide.members) {
@@ -556,12 +581,10 @@ export async function calculateClanBonusMedals(
       }
 
       const stats = memberStatsMap.get(tag)!;
-      // Update townHallLevel in case it changed between wars
-      if (member.townhallLevel) {
+      if (member.townhallLevel && !stats.townHallLevel) {
         stats.townHallLevel = member.townhallLevel;
       }
       const memberTownHall = member.townhallLevel || 0;
-      const memberMapPosition = member.mapPosition;
 
       // Check if member was in war but didn't attack
       const expectedAttacks = war.attacksPerMember || 1;
@@ -586,8 +609,7 @@ export async function calculateClanBonusMedals(
           const wasHigherTh = defenderTownHall > memberTownHall;
 
           // Check mirror rule (member at mapPosition N should attack opponent at mapPosition N)
-          const mirrorOpponent =
-            memberMapPosition !== undefined ? opponentByMapPosition.get(memberMapPosition) : undefined;
+          const mirrorOpponent = mirrorOpponents.get(tag);
           const wasMirror = mirrorOpponent ? attack.defenderTag === mirrorOpponent.tag : false;
           if (wasMirror) {
             attackedMirror = true;
