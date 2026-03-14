@@ -58,7 +58,8 @@ export async function listAllPolls(guildId: string): Promise<SavedPoll[]> {
 }
 
 /**
- * Record a vote for a question. Returns whether the user had already voted.
+ * Record or update a vote for a question.
+ * Returns whether the user had a prior vote (i.e. this was a change) and whether the poll was not found.
  * Reads, updates, and writes atomically (best-effort for single-process use).
  */
 export async function recordVote(
@@ -67,20 +68,20 @@ export async function recordVote(
   questionIndex: number,
   userId: string,
   vote: number | string
-): Promise<{ alreadyVoted: boolean; notFound: boolean }> {
+): Promise<{ voteChanged: boolean; notFound: boolean }> {
   const polls = await loadPolls(guildId);
   const pollIndex = polls.findIndex((p) => p.id === pollId);
 
-  if (pollIndex === -1) return { alreadyVoted: false, notFound: true };
+  if (pollIndex === -1) return { voteChanged: false, notFound: true };
 
   const poll = polls[pollIndex];
   const questionVotes = poll.votes[questionIndex];
 
-  if (!questionVotes) return { alreadyVoted: false, notFound: true };
-  if (questionVotes[userId] !== undefined) return { alreadyVoted: true, notFound: false };
+  if (!questionVotes) return { voteChanged: false, notFound: true };
 
+  const voteChanged = questionVotes[userId] !== undefined;
   questionVotes[userId] = vote;
   await writePollsFile(guildId, polls);
 
-  return { alreadyVoted: false, notFound: false };
+  return { voteChanged, notFound: false };
 }

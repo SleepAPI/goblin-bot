@@ -22,7 +22,7 @@ export function getOrCreateDraft(userId: string, guildId: string, channelId: str
     userId,
     guildId,
     channelId,
-    resultsRoleId: null,
+    resultsRoleIds: [],
     durationHours: 24,
     questions: []
   };

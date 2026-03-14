@@ -16,18 +16,18 @@ describe('pollDraftState', () => {
       expect(draft.userId).toBe(USER);
       expect(draft.guildId).toBe(GUILD);
       expect(draft.channelId).toBe(CHANNEL);
-      expect(draft.resultsRoleId).toBeNull();
+      expect(draft.resultsRoleIds).toEqual([]);
       expect(draft.durationHours).toBe(24);
       expect(draft.questions).toEqual([]);
     });
 
     it('returns the existing draft without resetting it', () => {
       const draft = getOrCreateDraft(USER, GUILD, CHANNEL);
-      draft.resultsRoleId = 'roleX';
+      draft.resultsRoleIds = ['roleX'];
       draft.durationHours = 48;
 
       const again = getOrCreateDraft(USER, GUILD, 'different-channel');
-      expect(again.resultsRoleId).toBe('roleX');
+      expect(again.resultsRoleIds).toEqual(['roleX']);
       expect(again.durationHours).toBe(48);
       // channelId from original call is preserved
       expect(again.channelId).toBe(CHANNEL);
@@ -49,12 +49,12 @@ describe('pollDraftState', () => {
     it('stores mutations made to the draft object', () => {
       const draft = getOrCreateDraft(USER, GUILD, CHANNEL);
       draft.durationHours = 72;
-      draft.resultsRoleId = 'role99';
+      draft.resultsRoleIds = ['role99'];
       setDraft(draft);
 
       const retrieved = getDraft(USER);
       expect(retrieved?.durationHours).toBe(72);
-      expect(retrieved?.resultsRoleId).toBe('role99');
+      expect(retrieved?.resultsRoleIds).toEqual(['role99']);
     });
   });
 

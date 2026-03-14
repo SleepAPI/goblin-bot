@@ -7,7 +7,7 @@ function makePoll(overrides: Partial<SavedPoll> = {}): SavedPoll {
     id: 'poll1',
     guildId: 'guild1',
     channelId: 'chan1',
-    resultsRoleId: 'role1',
+    resultsRoleIds: ['role1'],
     createdAt: '2026-01-01T00:00:00.000Z',
     expiresAt: '2026-01-02T00:00:00.000Z',
     questions: [],

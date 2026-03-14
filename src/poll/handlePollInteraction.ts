@@ -89,7 +89,7 @@ async function publishPoll(interaction: ButtonInteraction): Promise<void> {
   const userId = interaction.user.id;
   const draft = getDraft(userId);
 
-  if (!draft?.resultsRoleId || draft.questions.length === 0) {
+  if (!draft?.resultsRoleIds.length || draft.questions.length === 0) {
     await interaction.reply({ content: 'Poll is not ready to publish.', flags: MessageFlags.Ephemeral });
     return;
   }
@@ -114,7 +114,7 @@ async function publishPoll(interaction: ButtonInteraction): Promise<void> {
     id: pollId,
     guildId: draft.guildId,
     channelId: draft.channelId,
-    resultsRoleId: draft.resultsRoleId,
+    resultsRoleIds: draft.resultsRoleIds,
     createdAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
     questions: [],
@@ -156,7 +156,7 @@ async function publishPoll(interaction: ButtonInteraction): Promise<void> {
     id: pollId,
     guildId: draft.guildId,
     channelId: draft.channelId,
-    resultsRoleId: draft.resultsRoleId,
+    resultsRoleIds: draft.resultsRoleIds,
     createdAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
     questions: savedQuestions,
@@ -167,10 +167,11 @@ async function publishPoll(interaction: ButtonInteraction): Promise<void> {
   deleteDraft(userId);
 
   const qCount = savedQuestions.length;
+  const roleList = draft.resultsRoleIds.map((id) => `<@&${id}>`).join(', ');
   await interaction.editReply({
     content:
       `Poll published with ${qCount} question${qCount === 1 ? '' : 's'}! ` +
-      `Use \`/poll results\` to see responses (requires <@&${draft.resultsRoleId}>).`,
+      `Use \`/poll results\` to see responses (requires ${roleList}).`,
     components: []
   });
 }
@@ -221,7 +222,7 @@ export async function handlePollComponentInteraction(interaction: PollComponentI
       });
       return true;
     }
-    draft.resultsRoleId = interaction.values[0] ?? null;
+    draft.resultsRoleIds = interaction.values;
     setDraft(draft);
     await interaction.editReply(buildPollDraftView(draft));
     return true;

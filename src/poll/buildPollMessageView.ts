@@ -14,7 +14,9 @@ export function buildPollMessageView(
   const question = poll.questions[qIdx];
   const isExpired = !!(poll.endedAt || new Date(poll.expiresAt) <= new Date());
   const voteCount = Object.keys(votes).length;
-  const footer = `*Votes are anonymous — individual responses visible only to <@&${poll.resultsRoleId}>*`;
+  const roleList =
+    poll.resultsRoleIds.length > 0 ? poll.resultsRoleIds.map((id) => `<@&${id}>`).join(', ') : 'admins';
+  const footer = `*Votes are anonymous — individual responses visible only to ${roleList}*`;
 
   if (question.type === 'text') {
     const countLine = voteCount > 0 ? `\n${voteCount} response${voteCount !== 1 ? 's' : ''} received.` : '';

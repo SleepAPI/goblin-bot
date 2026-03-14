@@ -5,7 +5,7 @@ import { findPollById, listActivePolls, listAllPolls, updatePoll } from '@/poll/
 import { getOrCreateDraft } from '@/poll/pollDraftState';
 import type { SavedPoll } from '@/poll/types';
 import { getRoleIdsFromMember } from '@/utils/discordRoles';
-import { MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction, type Guild } from 'discord.js';
+import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder, type ChatInputCommandInteraction, type Guild } from 'discord.js';
 
 async function handleCreate(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guildId) return;
@@ -13,6 +13,14 @@ async function handleCreate(interaction: ChatInputCommandInteraction): Promise<v
   const draft = getOrCreateDraft(interaction.user.id, interaction.guildId, interaction.channelId);
   const view = buildPollDraftView(draft);
   await interaction.reply({ ...view, flags: MessageFlags.Ephemeral });
+}
+
+function canAccessResults(interaction: ChatInputCommandInteraction, poll: SavedPoll): boolean {
+  const guild = interaction.guild as Guild | null;
+  if (guild?.ownerId === interaction.user.id) return true;
+  if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+  const memberRoleIds = getRoleIdsFromMember(interaction.member);
+  return poll.resultsRoleIds.some((id) => memberRoleIds.has(id));
 }
 
 async function handleResults(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -39,14 +47,9 @@ async function handleResults(interaction: ChatInputCommandInteraction): Promise<
     return;
   }
 
-  const memberRoleIds = getRoleIdsFromMember(interaction.member);
-  const guild = interaction.guild as Guild | null;
-  const isOwner = guild?.ownerId === interaction.user.id;
-
-  if (!isOwner && !memberRoleIds.has(poll.resultsRoleId)) {
-    await interaction.editReply({
-      content: `You need the <@&${poll.resultsRoleId}> role to view detailed poll results.`
-    });
+  if (!canAccessResults(interaction, poll)) {
+    const roleList = poll.resultsRoleIds.map((id) => `<@&${id}>`).join(', ') || 'an admin';
+    await interaction.editReply({ content: `You need ${roleList} to view detailed poll results.` });
     return;
   }
 
@@ -77,14 +80,9 @@ async function handleEnd(interaction: ChatInputCommandInteraction): Promise<void
     return;
   }
 
-  const memberRoleIds = getRoleIdsFromMember(interaction.member);
-  const guild = interaction.guild as Guild | null;
-  const isOwner = guild?.ownerId === interaction.user.id;
-
-  if (!isOwner && !memberRoleIds.has(poll.resultsRoleId)) {
-    await interaction.editReply({
-      content: `You need the <@&${poll.resultsRoleId}> role to end this poll.`
-    });
+  if (!canAccessResults(interaction, poll)) {
+    const roleList = poll.resultsRoleIds.map((id) => `<@&${id}>`).join(', ') || 'an admin';
+    await interaction.editReply({ content: `You need ${roleList} to end this poll.` });
     return;
   }
 
@@ -92,6 +90,7 @@ async function handleEnd(interaction: ChatInputCommandInteraction): Promise<void
   await updatePoll(interaction.guildId, poll.id, { endedAt });
 
   // Disable buttons on published messages so no new votes can be cast
+  const guild = interaction.guild as Guild | null;
   const channel = guild ? await guild.channels.fetch(poll.channelId).catch(() => null) : null;
   if (channel?.isTextBased()) {
     const { buildPollMessageView } = await import('@/poll/buildPollMessageView');

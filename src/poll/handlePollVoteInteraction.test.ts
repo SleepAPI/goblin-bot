@@ -5,7 +5,7 @@ import { handlePollVoteButtonInteraction, handlePollVoteModalInteraction } from 
 
 vi.mock('./pollCache', () => ({
   findPollById: vi.fn(),
-  recordVote: vi.fn()
+  recordVote: vi.fn().mockResolvedValue({ voteChanged: false, notFound: false })
 }));
 
 vi.mock('./buildPollMessageView', () => ({
@@ -21,7 +21,7 @@ function makeActivePoll() {
     id: 'poll1',
     guildId: 'guild1',
     channelId: 'chan1',
-    resultsRoleId: 'role1',
+    resultsRoleIds: ['role1'],
     createdAt: '2026-01-01T00:00:00.000Z',
     expiresAt: '2099-01-01T00:00:00.000Z',
     questions: [{ messageId: 'm1', type: 'choice' as const, text: 'Best color?', answers: ['Red', 'Blue'] }],
@@ -109,7 +109,7 @@ describe('handlePollVoteButtonInteraction', () => {
     it('records the correct answer index and updates the public message', async () => {
       const poll = makeActivePoll();
       mockFindPollById.mockResolvedValue(poll);
-      mockRecordVote.mockResolvedValue({ alreadyVoted: false, notFound: false });
+      mockRecordVote.mockResolvedValue({ voteChanged: false, notFound: false });
 
       const interaction = makeButtonInteraction('pollv:c:poll1:0:1');
       await handlePollVoteButtonInteraction(interaction);
@@ -118,35 +118,34 @@ describe('handlePollVoteButtonInteraction', () => {
       expect(interaction.update).toHaveBeenCalled();
     });
 
-    it('sends an ephemeral confirmation after a successful vote', async () => {
+    it('sends an ephemeral "recorded" confirmation for a new vote', async () => {
       mockFindPollById.mockResolvedValue(makeActivePoll());
-      mockRecordVote.mockResolvedValue({ alreadyVoted: false, notFound: false });
+      mockRecordVote.mockResolvedValue({ voteChanged: false, notFound: false });
 
       const interaction = makeButtonInteraction('pollv:c:poll1:0:0');
       await handlePollVoteButtonInteraction(interaction);
 
-      expect(interaction.followUp).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
+      expect(interaction.followUp).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringContaining('recorded'), flags: MessageFlags.Ephemeral })
+      );
     });
 
-    it('does not update the public message if the user already voted', async () => {
+    it('sends an ephemeral "changed" confirmation when the user changes their vote', async () => {
       mockFindPollById.mockResolvedValue(makeActivePoll());
-      mockRecordVote.mockResolvedValue({ alreadyVoted: true, notFound: false });
+      mockRecordVote.mockResolvedValue({ voteChanged: true, notFound: false });
 
-      const interaction = makeButtonInteraction('pollv:c:poll1:0:0');
+      const interaction = makeButtonInteraction('pollv:c:poll1:0:1');
       await handlePollVoteButtonInteraction(interaction);
 
-      expect(interaction.update).not.toHaveBeenCalled();
-      expect(interaction.reply).toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: expect.stringContaining('already voted'),
-          flags: MessageFlags.Ephemeral
-        })
+      expect(interaction.update).toHaveBeenCalled();
+      expect(interaction.followUp).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringContaining('changed'), flags: MessageFlags.Ephemeral })
       );
     });
 
     it('does not leak voter identity when updating the public message', async () => {
       mockFindPollById.mockResolvedValue(makeActivePoll());
-      mockRecordVote.mockResolvedValue({ alreadyVoted: false, notFound: false });
+      mockRecordVote.mockResolvedValue({ voteChanged: false, notFound: false });
 
       const interaction = makeButtonInteraction('pollv:c:poll1:0:0');
       await handlePollVoteButtonInteraction(interaction);
@@ -159,7 +158,6 @@ describe('handlePollVoteButtonInteraction', () => {
 
   describe('free text trigger (pollv:t)', () => {
     it('shows the response modal when the user has not yet submitted', async () => {
-      // votes[0] is empty — user has not submitted
       mockFindPollById.mockResolvedValue({ ...makeActivePoll(), votes: [{}] });
 
       const interaction = makeButtonInteraction('pollv:t:poll1:0');
@@ -169,15 +167,15 @@ describe('handlePollVoteButtonInteraction', () => {
       expect(interaction.reply).not.toHaveBeenCalled();
     });
 
-    it('blocks the modal if the user already submitted a response', async () => {
+    it('shows the modal (for editing) even if the user already submitted a response', async () => {
       const poll = { ...makeActivePoll(), votes: [{ user1: 'I already answered' }] };
       mockFindPollById.mockResolvedValue(poll);
 
       const interaction = makeButtonInteraction('pollv:t:poll1:0');
       await handlePollVoteButtonInteraction(interaction);
 
-      expect(interaction.showModal).not.toHaveBeenCalled();
-      expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
+      expect(interaction.showModal).toHaveBeenCalled();
+      expect(interaction.reply).not.toHaveBeenCalled();
     });
   });
 });
@@ -194,7 +192,7 @@ describe('handlePollVoteModalInteraction', () => {
   });
 
   it('records the full text response verbatim', async () => {
-    mockRecordVote.mockResolvedValue({ alreadyVoted: false, notFound: false });
+    mockRecordVote.mockResolvedValue({ voteChanged: false, notFound: false });
     mockFindPollById.mockResolvedValue(makeActivePoll());
 
     const interaction = makeModalInteraction('pollv:m:poll1:0', 'My detailed response here');
@@ -203,26 +201,28 @@ describe('handlePollVoteModalInteraction', () => {
     expect(mockRecordVote).toHaveBeenCalledWith('guild1', 'poll1', 0, 'user1', 'My detailed response here');
   });
 
-  it('sends an ephemeral confirmation after recording', async () => {
-    mockRecordVote.mockResolvedValue({ alreadyVoted: false, notFound: false });
+  it('sends an ephemeral "recorded" confirmation for a new response', async () => {
+    mockRecordVote.mockResolvedValue({ voteChanged: false, notFound: false });
     mockFindPollById.mockResolvedValue(makeActivePoll());
 
     const interaction = makeModalInteraction('pollv:m:poll1:0', 'A response');
     await handlePollVoteModalInteraction(interaction);
 
-    expect(interaction.followUp).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
+    expect(interaction.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('recorded'), flags: MessageFlags.Ephemeral })
+    );
   });
 
-  it('rejects duplicate responses ephemerally without updating the public message', async () => {
-    mockRecordVote.mockResolvedValue({ alreadyVoted: true, notFound: false });
+  it('sends an ephemeral "updated" confirmation when the user changes their response', async () => {
+    mockRecordVote.mockResolvedValue({ voteChanged: true, notFound: false });
+    mockFindPollById.mockResolvedValue(makeActivePoll());
 
-    const updateMock = vi.fn().mockResolvedValue(undefined);
-    const interaction = makeModalInteraction('pollv:m:poll1:0', 'A duplicate response', { update: updateMock });
+    const interaction = makeModalInteraction('pollv:m:poll1:0', 'An updated response');
     await handlePollVoteModalInteraction(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
-    expect(updateMock).not.toHaveBeenCalled();
-    expect(interaction.followUp).not.toHaveBeenCalled();
+    expect(interaction.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('updated'), flags: MessageFlags.Ephemeral })
+    );
   });
 
   it('replies with an error for an empty response', async () => {

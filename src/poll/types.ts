@@ -10,7 +10,7 @@ export interface PollDraft {
   userId: string;
   guildId: string;
   channelId: string;
-  resultsRoleId: string | null;
+  resultsRoleIds: string[];
   durationHours: number;
   questions: PollQuestion[];
 }
@@ -26,7 +26,7 @@ export interface SavedPoll {
   id: string;
   guildId: string;
   channelId: string;
-  resultsRoleId: string;
+  resultsRoleIds: string[];
   createdAt: string; // ISO
   expiresAt: string; // ISO
   questions: SavedPollQuestion[];

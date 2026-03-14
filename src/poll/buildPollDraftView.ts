@@ -25,11 +25,12 @@ export interface PollDraftView {
 }
 
 export function buildPollDraftView(draft: PollDraft): PollDraftView {
-  const { userId, questions, resultsRoleId, durationHours } = draft;
+  const { userId, questions, resultsRoleIds, durationHours } = draft;
 
-  const roleLine = resultsRoleId
-    ? `Results visible to: <@&${resultsRoleId}>`
-    : 'Results role: _not set yet (required to publish)_';
+  const roleLine =
+    resultsRoleIds.length > 0
+      ? `Results visible to: ${resultsRoleIds.map((id) => `<@&${id}>`).join(', ')}`
+      : 'Results roles: _not set yet (required to publish)_';
 
   const durationLabel = DURATION_OPTIONS.find((o) => o.value === String(durationHours))?.label ?? `${durationHours}h`;
 
@@ -46,14 +47,14 @@ export function buildPollDraftView(draft: PollDraft): PollDraftView {
 
   const content = `**Poll Builder**\n` + `${roleLine}\n` + `Duration: ${durationLabel}\n\n` + questionsSection;
 
-  const canPublish = questions.length > 0 && resultsRoleId !== null;
+  const canPublish = questions.length > 0 && resultsRoleIds.length > 0;
 
   const roleRow = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
     new RoleSelectMenuBuilder()
       .setCustomId(`poll:set_role:${userId}`)
-      .setPlaceholder('Select a role that can see results')
+      .setPlaceholder('Select roles that can see results (admins always can)')
       .setMinValues(0)
-      .setMaxValues(1)
+      .setMaxValues(5)
   );
 
   const durationRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(

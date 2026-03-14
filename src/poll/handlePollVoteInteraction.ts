@@ -36,32 +36,26 @@ export async function handlePollVoteButtonInteraction(interaction: ButtonInterac
   }
 
   if (voteType === 't') {
-    // Check before showing modal — showModal must be the first and only response
     const questionVotes = poll.votes[qIdx] ?? {};
-    if (questionVotes[interaction.user.id] !== undefined) {
-      await interaction.reply({
-        content: 'You have already submitted a response to this question.',
-        flags: MessageFlags.Ephemeral
-      });
-      return true;
+    const existingResponse = questionVotes[interaction.user.id];
+    const questionLabel = poll.questions[qIdx]?.text.slice(0, 45) ?? 'Your response';
+    const input = new TextInputBuilder()
+      .setCustomId('poll_response')
+      .setLabel(questionLabel)
+      .setStyle(TextInputStyle.Paragraph)
+      .setMaxLength(1000)
+      .setRequired(true)
+      .setPlaceholder('Type your answer here...');
+
+    if (typeof existingResponse === 'string') {
+      input.setValue(existingResponse);
     }
 
-    const questionLabel = poll.questions[qIdx]?.text.slice(0, 45) ?? 'Your response';
     await interaction.showModal(
       new ModalBuilder()
         .setCustomId(`pollv:m:${pollId}:${qIdx}`)
-        .setTitle('Submit your response')
-        .addComponents(
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId('poll_response')
-              .setLabel(questionLabel)
-              .setStyle(TextInputStyle.Paragraph)
-              .setMaxLength(1000)
-              .setRequired(true)
-              .setPlaceholder('Type your answer here...')
-          )
-        )
+        .setTitle(existingResponse !== undefined ? 'Update your response' : 'Submit your response')
+        .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input))
     );
     return true;
   }
@@ -69,15 +63,10 @@ export async function handlePollVoteButtonInteraction(interaction: ButtonInterac
   if (voteType === 'c') {
     const aIdx = parseInt(parts[4] ?? '0', 10);
 
-    const { alreadyVoted, notFound } = await recordVote(interaction.guildId, pollId, qIdx, interaction.user.id, aIdx);
+    const { voteChanged, notFound } = await recordVote(interaction.guildId, pollId, qIdx, interaction.user.id, aIdx);
 
     if (notFound) {
       await interaction.reply({ content: 'This poll no longer exists.', flags: MessageFlags.Ephemeral });
-      return true;
-    }
-
-    if (alreadyVoted) {
-      await interaction.reply({ content: 'You have already voted on this question.', flags: MessageFlags.Ephemeral });
       return true;
     }
 
@@ -89,7 +78,10 @@ export async function handlePollVoteButtonInteraction(interaction: ButtonInterac
 
     const updatedVotes = updatedPoll.votes[qIdx] ?? {};
     await interaction.update(buildPollMessageView(updatedPoll, qIdx, updatedVotes));
-    await interaction.followUp({ content: 'Your vote has been recorded.', flags: MessageFlags.Ephemeral });
+    await interaction.followUp({
+      content: voteChanged ? 'Your vote has been changed.' : 'Your vote has been recorded.',
+      flags: MessageFlags.Ephemeral
+    });
     return true;
   }
 
@@ -115,7 +107,7 @@ export async function handlePollVoteModalInteraction(interaction: ModalSubmitInt
   }
 
   try {
-    const { alreadyVoted, notFound } = await recordVote(
+    const { voteChanged, notFound } = await recordVote(
       interaction.guildId,
       pollId,
       qIdx,
@@ -128,23 +120,15 @@ export async function handlePollVoteModalInteraction(interaction: ModalSubmitInt
       return true;
     }
 
-    if (alreadyVoted) {
-      await interaction.reply({
-        content: 'You have already submitted a response to this question.',
-        flags: MessageFlags.Ephemeral
-      });
-      return true;
-    }
-
+    const confirmation = voteChanged ? 'Your response has been updated.' : 'Your response has been recorded.';
     const updatedPoll = await findPollById(interaction.guildId, pollId);
 
     if (updatedPoll && interaction.isFromMessage()) {
-      // Update the public message count and send private confirmation
       const updatedVotes = updatedPoll.votes[qIdx] ?? {};
       await interaction.update(buildPollMessageView(updatedPoll, qIdx, updatedVotes));
-      await interaction.followUp({ content: 'Your response has been recorded.', flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: confirmation, flags: MessageFlags.Ephemeral });
     } else {
-      await interaction.reply({ content: 'Your response has been recorded.', flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: confirmation, flags: MessageFlags.Ephemeral });
     }
   } catch (err) {
     logger.error({ err, pollId, qIdx }, 'Failed to record poll response');
